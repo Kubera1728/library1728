@@ -1,0 +1,6 @@
+{
+  "name": "StudyLingo - Smart Library & Seat Management",
+  "description": "A playful, Duolingo-inspired library seat and subscription management system with unified code access, dynamic Supabase integration, and instant WhatsApp reminders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -46,17 +46,32 @@ export default function App() {
     parseScanRouteFromLocation()
   );
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
-  const [dataVersion, setDataVersion] = useState(0);
+  const [configVersion, setConfigVersion] = useState(0);
+  const [configReady, setConfigReady] = useState(() => isSupabaseConfigured());
+  const [, setUiTick] = useState(0);
 
   // Hydrate runtime Supabase env vars from server if not already present on window/Vite env
   useEffect(() => {
-    if (!isSupabaseConfigured()) {
-      void hydrateSupabaseConfigFromServer().then((hydrated) => {
+    if (isSupabaseConfigured()) {
+      setConfigReady(true);
+      return;
+    }
+    let cancelled = false;
+    void hydrateSupabaseConfigFromServer()
+      .then((hydrated) => {
+        if (cancelled) return;
         if (hydrated) {
-          setDataVersion((v) => v + 1);
+          setConfigVersion((v) => v + 1);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setConfigReady(true);
         }
       });
-    }
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Listen to browser navigation (back/forward) for /scan route
@@ -96,7 +111,11 @@ export default function App() {
   };
 
   const handleDataChanged = () => {
-    setDataVersion((v) => v + 1);
+    setUiTick((v) => v + 1);
+  };
+
+  const handleSupabaseConfigChanged = () => {
+    setConfigVersion((v) => v + 1);
   };
 
   const isDashboardMode = Boolean(session && !scanRoute);
@@ -121,7 +140,11 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className={`flex-1 ${isDashboardMode ? 'min-h-0 overflow-hidden flex flex-col' : ''}`}>
-        {scanRoute ? (
+        {!configReady && (session || scanRoute) ? (
+          <div className="flex-1 flex items-center justify-center p-6 text-xs font-bold text-slate-500">
+            Connecting to database...
+          </div>
+        ) : scanRoute ? (
           <PublicQrScanPage
             seatParam={scanRoute.seat}
             libraryIdParam={scanRoute.lib}
@@ -134,7 +157,7 @@ export default function App() {
           />
         ) : session.role === 'admin' ? (
           <AdminDashboard
-            key={`admin_${dataVersion}`}
+            key={`admin_${configVersion}`}
             adminCode={session.code}
             onRefresh={handleDataChanged}
             onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
@@ -142,7 +165,7 @@ export default function App() {
           />
         ) : session.role === 'owner' ? (
           <OwnerDashboard
-            key={`owner_${session.reference_id || session.library?.id || ''}_${dataVersion}`}
+            key={`owner_${session.reference_id || session.library?.id || ''}_${configVersion}`}
             ownerCode={session.code}
             libraryId={session.reference_id || session.library?.id || ''}
             onLogout={handleLogout}
@@ -174,7 +197,7 @@ export default function App() {
       <SupabaseModal
         isOpen={isSupabaseModalOpen}
         onClose={() => setIsSupabaseModalOpen(false)}
-        onDataChanged={handleDataChanged}
+        onDataChanged={handleSupabaseConfigChanged}
       />
     </div>
   );

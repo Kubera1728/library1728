@@ -37,7 +37,14 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { BroadcastRequest, Library, LoginRecord, Student } from '../types/database';
-import { dataService, isSupabaseConfigured, isValidStudentPin } from '../lib/supabase';
+import {
+  dataService,
+  getSupabaseClient,
+  getSupabaseDiagnostics,
+  hydrateSupabaseConfigFromServer,
+  isSupabaseConfigured,
+  isValidStudentPin,
+} from '../lib/supabase';
 import {
   downloadMasterQrPdf,
   formatSeatBadgeNumber,
@@ -147,7 +154,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Action Modals & Dedicated Library Page States
   const [showAddLibraryModal, setShowAddLibraryModal] = useState(false);
+  const [creatingLibrary, setCreatingLibrary] = useState(false);
+  const [addLibraryError, setAddLibraryError] = useState<string | null>(null);
   const [showAddCodeModal, setShowAddCodeModal] = useState(false);
+  const [creatingCode, setCreatingCode] = useState(false);
+  const [addCodeError, setAddCodeError] = useState<string | null>(null);
+  const [deletingLibrary, setDeletingLibrary] = useState(false);
+  const [deleteLibraryError, setDeleteLibraryError] = useState<string | null>(null);
+  const [deletingCode, setDeletingCode] = useState(false);
+  const [deleteCodeError, setDeleteCodeError] = useState<string | null>(null);
+  const [updatingLibId, setUpdatingLibId] = useState<string | null>(null);
   const [selectedLibrary, setSelectedLibrary] = useState<Library | null>(null);
   const [selectedLibStudents, setSelectedLibStudents] = useState<Student[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
@@ -234,45 +250,127 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setLoading(true);
     setActionError(null);
     try {
-      const [libs, logs, studs, bcasts] = await Promise.all([
+      if (!isSupabaseConfigured()) {
+        await hydrateSupabaseConfigFromServer();
+      }
+
+      const diag = getSupabaseDiagnostics();
+      const client = getSupabaseClient();
+      console.info('[AdminDashboard] Loading metrics with Supabase config:', diag);
+
+      if (!diag.configured || !client) {
+        const missingMsg =
+          'Supabase is not configured in this deployment. Set VITE_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel Environment Variables, or enter them in Database Settings.';
+        console.error('[AdminDashboard] Supabase client initialization failed:', diag);
+        setActionError(missingMsg);
+        setLibraries([]);
+        setLogins([]);
+        setAllStudents([]);
+        setBroadcastRequests([]);
+        return;
+      }
+
+      const [libsRes, logsRes, studsRes, bcastsRes] = await Promise.allSettled([
         dataService.getAllLibraries(),
         dataService.getAllLogins(),
         dataService.getAllStudents(),
         dataService.getBroadcastRequests(),
       ]);
-      setLibraries(libs);
-      setLogins(logs);
-      setAllStudents(studs);
-      setBroadcastRequests(bcasts);
+
+      if (libsRes.status === 'fulfilled') setLibraries(libsRes.value);
+      if (logsRes.status === 'fulfilled') setLogins(logsRes.value);
+      if (studsRes.status === 'fulfilled') setAllStudents(studsRes.value);
+      if (bcastsRes.status === 'fulfilled') setBroadcastRequests(bcastsRes.value);
+
+      const loadErrors: string[] = [];
+      if (libsRes.status === 'rejected') {
+        console.error('[AdminDashboard] Failed to fetch libraries:', libsRes.reason);
+        loadErrors.push(`Libraries: ${libsRes.reason?.message || 'Failed to load'}`);
+      }
+      if (logsRes.status === 'rejected') {
+        console.error('[AdminDashboard] Failed to fetch all_logins:', logsRes.reason);
+        loadErrors.push(`Pins/Logins: ${logsRes.reason?.message || 'Failed to load'}`);
+      }
+      if (studsRes.status === 'rejected') {
+        console.error('[AdminDashboard] Failed to fetch students:', studsRes.reason);
+        loadErrors.push(`Students: ${studsRes.reason?.message || 'Failed to load'}`);
+      }
+      if (bcastsRes.status === 'rejected') {
+        console.error('[AdminDashboard] Failed to fetch broadcast_requests:', bcastsRes.reason);
+        loadErrors.push(`Broadcasts: ${bcastsRes.reason?.message || 'Failed to load'}`);
+      }
+
+      if (loadErrors.length > 0) {
+        setActionError(`Supabase query error: ${loadErrors.join(' · ')}`);
+      } else {
+        console.info('[AdminDashboard] Loaded live Supabase metrics:', {
+          libraries: libsRes.status === 'fulfilled' ? libsRes.value.length : 0,
+          logins: logsRes.status === 'fulfilled' ? logsRes.value.length : 0,
+          students: studsRes.status === 'fulfilled' ? studsRes.value.length : 0,
+          broadcasts: bcastsRes.status === 'fulfilled' ? bcastsRes.value.length : 0,
+        });
+      }
+
       onRefresh();
     } catch (err: any) {
-      console.error('Failed to load admin data:', err);
-      setActionError(err.message || 'Failed to load database records.');
+      console.error('[AdminDashboard] Failed to load admin data:', err);
+      setActionError(err?.message || 'Failed to load database records.');
     } finally {
       setLoading(false);
     }
   };
 
   const syncBroadcastQueueSilently = async () => {
+    if (!isSupabaseConfigured() || !getSupabaseClient()) return;
     try {
-      const [bcasts, studs, freshLogs] = await Promise.all([
+      const [libsRes, bcastsRes, studsRes, logsRes] = await Promise.allSettled([
+        dataService.getAllLibraries(),
         dataService.getBroadcastRequests(),
         dataService.getAllStudents(),
         dataService.getAllLogins(),
       ]);
-      setBroadcastRequests(bcasts);
-      setAllStudents(studs);
-      setLogins(freshLogs);
-      setSelectedBroadcastModal((prev) =>
-        prev && !bcasts.some((item) => item.id === prev.id) ? null : prev
-      );
-    } catch {
-      // Ignore silent background sync errors
+      if (libsRes.status === 'fulfilled') setLibraries(libsRes.value);
+      if (bcastsRes.status === 'fulfilled') {
+        const bcasts = bcastsRes.value;
+        setBroadcastRequests(bcasts);
+        setSelectedBroadcastModal((prev) =>
+          prev && !bcasts.some((item) => item.id === prev.id) ? null : prev
+        );
+      }
+      if (studsRes.status === 'fulfilled') setAllStudents(studsRes.value);
+      if (logsRes.status === 'fulfilled') setLogins(logsRes.value);
+    } catch (err) {
+      console.warn('[AdminDashboard] Background sync failed:', err);
     }
   };
 
   useEffect(() => {
-    loadData();
+    let active = true;
+    let unsubscribeLibraries = () => {};
+    let unsubscribeStudents = () => {};
+
+    const initAdminDashboard = async () => {
+      await loadData();
+      if (!active) return;
+      unsubscribeLibraries = dataService.subscribeToLibraryUpdates({
+        onUpdate: () => {
+          void syncBroadcastQueueSilently();
+        },
+      });
+      unsubscribeStudents = dataService.subscribeToStudentUpdates({
+        onUpdate: () => {
+          void syncBroadcastQueueSilently();
+        },
+      });
+    };
+
+    void initAdminDashboard();
+
+    return () => {
+      active = false;
+      unsubscribeLibraries();
+      unsubscribeStudents();
+    };
   }, []);
 
   // Keep Master Admin broadcast queue synced live so owner-deleted or expired requests vanish immediately
@@ -326,6 +424,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const openAddLibraryModal = () => {
+    setAddLibraryError(null);
+    setActionError(null);
+    setShowAddLibraryModal(true);
+  };
+
+  const openAddCodeModal = () => {
+    setAddCodeError(null);
+    setActionError(null);
+    setShowAddCodeModal(true);
+  };
+
   const handleOpenLibraryDetails = async (lib: Library) => {
     playSound('pop');
     setActiveTab('libraries');
@@ -342,8 +452,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       ]);
       setSelectedLibStudents(studs.filter((s) => !isStudentExited(s)));
       setLogins(freshLogs);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setActionError(`Error loading library details: ${e?.message || 'Unknown error'}`);
       setSelectedLibStudents([]);
     } finally {
       setLoadingStudents(false);
@@ -352,26 +463,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleCreateLibrary = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!libForm.name.trim() || !libForm.location.trim()) return;
+    if (creatingLibrary) return;
+    if (!libForm.name.trim() || !libForm.location.trim()) {
+      setAddLibraryError('Please enter both Library Name and Location.');
+      return;
+    }
+    setAddLibraryError(null);
     setActionError(null);
+    setCreatingLibrary(true);
 
     const slugId =
       'lib_' +
-      libForm.name
+      (libForm.name
         .toLowerCase()
         .replace(/[^a-z0-9]/g, '_')
-        .slice(0, 20) +
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '')
+        .slice(0, 20) || 'library') +
       '_' +
       Math.floor(Math.random() * 1000);
+    const codePrefix =
+      libForm.name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'LIB';
     const generatedOwnerCode =
       libForm.owner_code.trim().toUpperCase() ||
-      `OWNER-${libForm.name.slice(0, 4).toUpperCase()}${Math.floor(Math.random() * 900 + 100)}`;
+      `OWNER-${codePrefix}${Math.floor(Math.random() * 900 + 100)}`;
 
     const newLib: Library = {
       id: slugId,
       name: libForm.name.trim(),
       location: libForm.location.trim(),
-      total_seats: Number(libForm.total_seats) || 50,
+      total_seats: Math.max(1, Number(libForm.total_seats) || 50),
       owner_name: libForm.owner_name.trim() || 'Library Manager',
       contact_phone: libForm.contact_phone.trim() || '+919876543210',
       subscription_status: 'active',
@@ -393,14 +514,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         subscription_expiry: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
         owner_code: '',
       });
-      loadData();
+      await loadData();
     } catch (err: any) {
-      setActionError(`Error creating library: ${err.message}`);
+      setAddLibraryError(err?.message || 'Error creating library.');
+    } finally {
+      setCreatingLibrary(false);
     }
   };
 
   const handleConfirmDeleteLibrary = async () => {
-    if (!confirmDeleteLib) return;
+    if (!confirmDeleteLib || deletingLibrary) return;
+    setDeletingLibrary(true);
+    setDeleteLibraryError(null);
     try {
       await dataService.deleteLibrary(confirmDeleteLib.id);
       playSound('pop');
@@ -408,14 +533,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         setSelectedLibrary(null);
       }
       setConfirmDeleteLib(null);
-      loadData();
+      await loadData();
     } catch (err: any) {
-      setActionError(`Error deleting library: ${err.message}`);
-      setConfirmDeleteLib(null);
+      setDeleteLibraryError(err?.message || 'Error deleting library.');
+    } finally {
+      setDeletingLibrary(false);
     }
   };
 
   const handleExtendSubscription = async (libId: string, daysToAdd: number) => {
+    if (updatingLibId) return;
     const lib = libraries.find((l) => l.id === libId);
     if (!lib) return;
 
@@ -424,6 +551,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     baseDate.setDate(baseDate.getDate() + daysToAdd);
     const newExpiry = baseDate.toISOString().split('T')[0];
 
+    setUpdatingLibId(libId);
+    setActionError(null);
     try {
       await dataService.updateLibrary({
         id: libId,
@@ -431,45 +560,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         subscription_status: 'active',
       });
       playSound('success');
-      loadData();
       if (selectedLibrary?.id === libId) {
         setSelectedLibrary({ ...selectedLibrary, subscription_expiry: newExpiry, subscription_status: 'active' });
       }
+      await loadData();
     } catch (err: any) {
-      setActionError(`Error extending subscription: ${err.message}`);
+      setActionError(`Error extending subscription: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setUpdatingLibId(null);
     }
   };
 
   const handleToggleSubscriptionStatus = async (libId: string, currentStatus?: string) => {
+    if (updatingLibId) return;
     const isCurrentlyActive = (currentStatus || '').toLowerCase() === 'active';
     const newStatus = isCurrentlyActive ? 'inactive' : 'active';
 
+    setUpdatingLibId(libId);
+    setActionError(null);
     try {
       await dataService.updateLibrary({
         id: libId,
         subscription_status: newStatus,
       });
       playSound('pop');
-      loadData();
       if (selectedLibrary?.id === libId) {
         setSelectedLibrary({ ...selectedLibrary, subscription_status: newStatus });
       }
+      await loadData();
     } catch (err: any) {
-      setActionError(`Error updating subscription status: ${err.message}`);
+      setActionError(`Error updating subscription status: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setUpdatingLibId(null);
     }
   };
 
   const handleCreateCode = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (creatingCode) return;
     const cleanCode = codeForm.code.trim().toUpperCase();
-    if (!cleanCode) return;
+    if (!cleanCode) {
+      setAddCodeError('Please enter a code or PIN.');
+      return;
+    }
+    setAddCodeError(null);
     setActionError(null);
 
     if (codeForm.role === 'student' && !isValidStudentPin(cleanCode)) {
-      setActionError('Student Pin must be a 4-digit numeric PIN between 1000 and 9999 (e.g. 4821).');
+      setAddCodeError('Student Pin must be a 4-digit numeric PIN between 1000 and 9999 (e.g. 4821).');
       return;
     }
 
+    setCreatingCode(true);
     try {
       await dataService.createLoginCode({
         code: cleanCode,
@@ -481,32 +623,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       playSound('success');
       setShowAddCodeModal(false);
       setCodeForm({ code: '', role: 'owner', reference_id: '' });
-      loadData();
+      await loadData();
     } catch (err: any) {
-      setActionError(`Error creating code: ${err.message}`);
+      setAddCodeError(err?.message || 'Error creating code.');
+    } finally {
+      setCreatingCode(false);
     }
   };
 
   const handleToggleCode = async (code: string, currentActive: boolean) => {
+    setActionError(null);
     try {
       await dataService.toggleLoginCodeStatus(code, !currentActive);
       playSound('pop');
-      loadData();
+      await loadData();
     } catch (err: any) {
-      setActionError(`Error updating code: ${err.message}`);
+      setActionError(`Error updating code: ${err?.message || 'Unknown error'}`);
     }
   };
 
   const handleConfirmDeleteCode = async () => {
-    if (!confirmDeleteCode) return;
+    if (!confirmDeleteCode || deletingCode) return;
+    setDeletingCode(true);
+    setDeleteCodeError(null);
     try {
       await dataService.deleteLoginCode(confirmDeleteCode);
       playSound('pop');
       setConfirmDeleteCode(null);
-      loadData();
+      await loadData();
     } catch (err: any) {
-      setActionError(`Error deleting code: ${err.message}`);
-      setConfirmDeleteCode(null);
+      setDeleteCodeError(err?.message || 'Error deleting code.');
+    } finally {
+      setDeletingCode(false);
     }
   };
 
@@ -608,10 +756,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
 
   const filteredLibraries = libraries.filter((l) => {
+    const q = searchQuery.toLowerCase();
     const matchesSearch =
-      l.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      l.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      l.owner_name.toLowerCase().includes(searchQuery.toLowerCase());
+      (l.name || '').toLowerCase().includes(q) ||
+      (l.location || '').toLowerCase().includes(q) ||
+      (l.owner_name || '').toLowerCase().includes(q);
     if (!matchesSearch) return false;
 
     if (libraryFilterStatus === 'active') {
@@ -629,10 +778,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const filteredLogins = logins.filter((item) => {
     const matchesRole = codeFilterRole === 'all' || item.role === codeFilterRole;
+    const cq = codeSearchQuery.toLowerCase();
     const matchesSearch =
       !codeSearchQuery ||
-      item.code.toLowerCase().includes(codeSearchQuery.toLowerCase()) ||
-      (item.reference_id && item.reference_id.toLowerCase().includes(codeSearchQuery.toLowerCase()));
+      (item.code || '').toLowerCase().includes(cq) ||
+      Boolean(item.reference_id && item.reference_id.toLowerCase().includes(cq));
     return matchesRole && matchesSearch;
   });
 
@@ -762,7 +912,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (a.type === 'expiring') return a.daysLeft - b.daysLeft;
     const dateDiff = (b.triggerDate || '').localeCompare(a.triggerDate || '');
     if (dateDiff !== 0) return dateDiff;
-    return a.student.name.localeCompare(b.student.name);
+    return (a.student.name || '').localeCompare(b.student.name || '');
   });
 
   const studentAlertCounts = {
@@ -794,11 +944,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (a.type !== studentAlertFilter) return false;
     if (!studentAlertQuery) return true;
     return (
-      a.student.name.toLowerCase().includes(studentAlertQuery) ||
-      a.libraryName.toLowerCase().includes(studentAlertQuery) ||
-      a.student.seat_number.toLowerCase().includes(studentAlertQuery) ||
-      a.student.shift.toLowerCase().includes(studentAlertQuery) ||
-      a.student.phone.includes(studentAlertQuery)
+      (a.student.name || '').toLowerCase().includes(studentAlertQuery) ||
+      (a.libraryName || '').toLowerCase().includes(studentAlertQuery) ||
+      (a.student.seat_number || '').toLowerCase().includes(studentAlertQuery) ||
+      (a.student.shift || '').toLowerCase().includes(studentAlertQuery) ||
+      (a.student.phone || '').includes(studentAlertQuery)
     );
   });
 
@@ -989,10 +1139,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const q = libStudentSearch.trim().toLowerCase();
     const matchesSearch =
       !q ||
-      st.name.toLowerCase().includes(q) ||
-      st.seat_number.toLowerCase().includes(q) ||
-      st.phone.toLowerCase().includes(q) ||
-      st.shift.toLowerCase().includes(q) ||
+      (st.name || '').toLowerCase().includes(q) ||
+      (st.seat_number || '').toLowerCase().includes(q) ||
+      (st.phone || '').toLowerCase().includes(q) ||
+      (st.shift || '').toLowerCase().includes(q) ||
       code.toLowerCase().includes(q);
 
     if (!matchesSearch) return false;
@@ -1032,15 +1182,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         
         {/* Optional Inline Error Banner */}
         {actionError && (
-          <div className="p-2.5 rounded-xl bg-red-100 border border-red-300 text-red-800 text-xs font-bold flex items-center justify-between gap-2 shrink-0">
-            <span className="truncate">{actionError}</span>
-            <button
-              type="button"
-              onClick={() => setActionError(null)}
-              className="px-2 py-0.5 rounded-lg bg-red-200 text-red-900 font-black cursor-pointer shrink-0"
-            >
-              ✕
-            </button>
+          <div className="p-2.5 sm:p-3 rounded-xl bg-red-100 border border-red-300 text-red-800 text-xs font-bold flex items-start justify-between gap-2 shrink-0">
+            <span className="break-words leading-snug flex-1">{actionError}</span>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {!isDbConnected && onOpenSupabaseModal && (
+                <button
+                  type="button"
+                  onClick={onOpenSupabaseModal}
+                  className="px-2.5 py-1 rounded-lg bg-red-600 text-white font-black cursor-pointer whitespace-nowrap"
+                >
+                  DB Settings
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setActionError(null)}
+                className="px-2 py-1 rounded-lg bg-red-200 text-red-900 font-black cursor-pointer"
+                aria-label="Dismiss error"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         )}
 
@@ -1077,7 +1239,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowAddLibraryModal(true)}
+                  onClick={openAddLibraryModal}
                   className="px-3.5 py-2 rounded-xl text-xs font-black duo-btn-green flex items-center gap-1.5 cursor-pointer uppercase min-h-[40px] whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4 stroke-[3]" />
@@ -1251,7 +1413,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
-                  onClick={() => setShowAddLibraryModal(true)}
+                  onClick={openAddLibraryModal}
                   className="py-3 px-3 rounded-2xl text-xs font-black duo-btn-green flex items-center justify-center gap-1.5 cursor-pointer uppercase min-h-[44px]"
                 >
                   <Plus className="w-4 h-4 stroke-[3]" />
@@ -1259,7 +1421,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowAddCodeModal(true)}
+                  onClick={openAddCodeModal}
                   className="py-3 px-3 rounded-2xl text-xs font-black duo-btn-blue flex items-center justify-center gap-1.5 cursor-pointer uppercase min-h-[44px]"
                 >
                   <KeyRound className="w-4 h-4" />
@@ -1348,10 +1510,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="grid grid-cols-3 sm:flex sm:items-center gap-1.5">
                   <button
                     type="button"
+                    disabled={updatingLibId === selectedLibrary.id}
                     onClick={() =>
                       handleToggleSubscriptionStatus(selectedLibrary.id, selectedLibrary.subscription_status)
                     }
-                    className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black flex items-center justify-center cursor-pointer min-h-[32px] whitespace-nowrap ${
+                    className={`px-2.5 py-1.5 rounded-xl text-[10px] font-black flex items-center justify-center cursor-pointer min-h-[32px] whitespace-nowrap disabled:opacity-60 ${
                       (selectedLibrary.subscription_status || '').toLowerCase() === 'active'
                         ? 'duo-btn-red'
                         : 'duo-btn-green'
@@ -1363,15 +1526,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                   <button
                     type="button"
+                    disabled={updatingLibId === selectedLibrary.id}
                     onClick={() => handleExtendSubscription(selectedLibrary.id, 30)}
-                    className="px-2.5 py-1.5 rounded-xl text-[10px] font-black duo-btn-green flex items-center justify-center cursor-pointer min-h-[32px] whitespace-nowrap"
+                    className="px-2.5 py-1.5 rounded-xl text-[10px] font-black duo-btn-green flex items-center justify-center cursor-pointer min-h-[32px] whitespace-nowrap disabled:opacity-60"
                   >
                     +30d
                   </button>
                   <button
                     type="button"
+                    disabled={updatingLibId === selectedLibrary.id}
                     onClick={() => handleExtendSubscription(selectedLibrary.id, 90)}
-                    className="px-2.5 py-1.5 rounded-xl text-[10px] font-black duo-btn-blue flex items-center justify-center cursor-pointer min-h-[32px] whitespace-nowrap"
+                    className="px-2.5 py-1.5 rounded-xl text-[10px] font-black duo-btn-blue flex items-center justify-center cursor-pointer min-h-[32px] whitespace-nowrap disabled:opacity-60"
                   >
                     +90d
                   </button>
@@ -1463,7 +1628,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       const isExpired = !exited && daysLeft < 0;
                       const isExpiringUrgent = !exited && daysLeft >= 0 && daysLeft <= 2;
                       const isNew = isNewlyAddedStudent(st);
-                      const shortShift = st.shift.split('(')[0].trim();
+                      const shortShift = (st.shift || '').split('(')[0].trim();
 
                       return (
                         <button
@@ -1584,7 +1749,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowAddLibraryModal(true)}
+                  onClick={openAddLibraryModal}
                   className="px-3 py-1.5 rounded-xl text-xs font-black duo-btn-green flex items-center gap-1 cursor-pointer uppercase shrink-0 min-h-[36px]"
                 >
                   <Plus className="w-3.5 h-3.5 stroke-[3]" />
@@ -1626,7 +1791,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {libraries.length === 0 && (
                     <button
                       type="button"
-                      onClick={() => setShowAddLibraryModal(true)}
+                      onClick={openAddLibraryModal}
                       className="px-5 py-2.5 rounded-xl text-xs font-black duo-btn-green cursor-pointer uppercase"
                     >
                       Add First Library
@@ -1705,7 +1870,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setConfirmDeleteLib({ id: lib.id, name: lib.name })}
+                              onClick={() => {
+                                setDeleteLibraryError(null);
+                                setConfirmDeleteLib({ id: lib.id, name: lib.name });
+                              }}
                               className="p-1.5 rounded-xl duo-btn-white text-red-500 hover:text-red-700 cursor-pointer min-h-[34px] min-w-[34px] flex items-center justify-center"
                               title={`Delete ${lib.name}`}
                               aria-label={`Delete ${lib.name}`}
@@ -1771,7 +1939,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowAddCodeModal(true)}
+                  onClick={openAddCodeModal}
                   className="px-3 py-2 rounded-xl text-xs font-black duo-btn-green flex items-center gap-1 cursor-pointer uppercase shrink-0 min-h-[40px]"
                 >
                   <Plus className="w-4 h-4 stroke-[3]" />
@@ -1847,7 +2015,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setConfirmDeleteCode(item.code)}
+                          onClick={() => {
+                            setDeleteCodeError(null);
+                            setConfirmDeleteCode(item.code);
+                          }}
                           className="p-1.5 rounded-xl duo-btn-white text-red-500 hover:text-red-700 cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
                           title="Delete Code"
                         >
@@ -2581,7 +2752,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             }
 
                             const waUrl = generateWhatsAppToPhoneUrl(st.phone, defaultMessage);
-                            const shiftShort = st.shift.split('(')[0].trim();
+                            const shiftShort = (st.shift || '').split('(')[0].trim();
                             const alreadySent = isStudentAlertSent(alert);
 
                             return (
@@ -3095,12 +3266,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </h3>
               <button
                 type="button"
-                onClick={() => setShowAddLibraryModal(false)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer"
+                disabled={creatingLibrary}
+                onClick={() => {
+                  setAddLibraryError(null);
+                  setShowAddLibraryModal(false);
+                }}
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer disabled:opacity-50"
               >
                 ✕
               </button>
             </div>
+
+            {addLibraryError && (
+              <div className="mt-3 p-3 rounded-2xl bg-red-50 border-2 border-red-200 text-xs font-bold text-red-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{addLibraryError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateLibrary} className="mt-4 space-y-3">
               <div>
@@ -3110,6 +3292,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <input
                   type="text"
                   required
+                  disabled={creatingLibrary}
                   placeholder="e.g. Vidya Study Hub"
                   value={libForm.name}
                   onChange={(e) => setLibForm({ ...libForm, name: e.target.value })}
@@ -3124,6 +3307,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <input
                   type="text"
                   required
+                  disabled={creatingLibrary}
                   placeholder="e.g. Sector 14, Near Metro Station"
                   value={libForm.location}
                   onChange={(e) => setLibForm({ ...libForm, location: e.target.value })}
@@ -3140,6 +3324,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     type="number"
                     min="1"
                     max="500"
+                    disabled={creatingLibrary}
                     value={libForm.total_seats}
                     onChange={(e) => setLibForm({ ...libForm, total_seats: parseInt(e.target.value, 10) || 1 })}
                     className="w-full px-3.5 py-2 rounded-xl border-2 border-[#e5e5e5] focus:border-[#58cc02] focus:outline-hidden text-xs font-bold"
@@ -3151,6 +3336,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </label>
                   <input
                     type="date"
+                    disabled={creatingLibrary}
                     value={libForm.subscription_expiry}
                     onChange={(e) => setLibForm({ ...libForm, subscription_expiry: e.target.value })}
                     className="w-full px-3.5 py-2 rounded-xl border-2 border-[#e5e5e5] focus:border-[#58cc02] focus:outline-hidden text-xs font-bold"
@@ -3165,6 +3351,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </label>
                   <input
                     type="text"
+                    disabled={creatingLibrary}
                     placeholder="e.g. Rajesh Kumar"
                     value={libForm.owner_name}
                     onChange={(e) => setLibForm({ ...libForm, owner_name: e.target.value })}
@@ -3177,6 +3364,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </label>
                   <input
                     type="tel"
+                    disabled={creatingLibrary}
                     placeholder="e.g. 919876543210"
                     value={libForm.contact_phone}
                     onChange={(e) => setLibForm({ ...libForm, contact_phone: e.target.value })}
@@ -3191,6 +3379,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </label>
                 <input
                   type="text"
+                  disabled={creatingLibrary}
                   placeholder="e.g. OWNER-VIDYA"
                   value={libForm.owner_code}
                   onChange={(e) => setLibForm({ ...libForm, owner_code: e.target.value.toUpperCase() })}
@@ -3201,16 +3390,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddLibraryModal(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer"
+                  disabled={creatingLibrary}
+                  onClick={() => {
+                    setAddLibraryError(null);
+                    setShowAddLibraryModal(false);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-black duo-btn-green cursor-pointer uppercase"
+                  disabled={creatingLibrary}
+                  className="px-5 py-2 rounded-xl text-xs font-black duo-btn-green cursor-pointer uppercase flex items-center gap-1.5 disabled:opacity-60"
                 >
-                  Save & Issue Code
+                  {creatingLibrary && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{creatingLibrary ? 'Saving...' : 'Save & Issue Code'}</span>
                 </button>
               </div>
             </form>
@@ -3228,12 +3423,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </h3>
               <button
                 type="button"
-                onClick={() => setShowAddCodeModal(false)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer"
+                disabled={creatingCode}
+                onClick={() => {
+                  setAddCodeError(null);
+                  setShowAddCodeModal(false);
+                }}
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer disabled:opacity-50"
               >
                 ✕
               </button>
             </div>
+
+            {addCodeError && (
+              <div className="mt-3 p-3 rounded-2xl bg-red-50 border-2 border-red-200 text-xs font-bold text-red-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{addCodeError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateCode} className="mt-4 space-y-3">
               <div>
@@ -3243,6 +3449,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <input
                   type="text"
                   required
+                  disabled={creatingCode}
                   inputMode={codeForm.role === 'student' ? 'numeric' : 'text'}
                   maxLength={codeForm.role === 'student' ? 4 : undefined}
                   placeholder={codeForm.role === 'student' ? 'e.g. 4821 (1000–9999)' : 'e.g. OWNER-VIDYA, ADMIN-02'}
@@ -3265,6 +3472,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   Target Role *
                 </label>
                 <select
+                  disabled={creatingCode}
                   value={codeForm.role}
                   onChange={(e) => {
                     const nextRole = e.target.value as 'owner' | 'admin' | 'student';
@@ -3291,6 +3499,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </label>
                 <input
                   type="text"
+                  disabled={creatingCode}
                   placeholder="e.g. lib_vidya"
                   value={codeForm.reference_id}
                   onChange={(e) => setCodeForm({ ...codeForm, reference_id: e.target.value })}
@@ -3301,16 +3510,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddCodeModal(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer"
+                  disabled={creatingCode}
+                  onClick={() => {
+                    setAddCodeError(null);
+                    setShowAddCodeModal(false);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-black duo-btn-green cursor-pointer uppercase"
+                  disabled={creatingCode}
+                  className="px-5 py-2 rounded-xl text-xs font-black duo-btn-green cursor-pointer uppercase flex items-center gap-1.5 disabled:opacity-60"
                 >
-                  Save Code
+                  {creatingCode && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{creatingCode ? 'Saving...' : 'Save Code'}</span>
                 </button>
               </div>
             </form>
@@ -3328,20 +3543,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <p className="text-xs font-semibold text-slate-600">
               Are you sure you want to remove <strong>{confirmDeleteLib.name}</strong> and all of its students? This cannot be undone.
             </p>
+            {deleteLibraryError && (
+              <div className="p-3 rounded-2xl bg-red-50 border-2 border-red-200 text-xs font-bold text-red-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{deleteLibraryError}</span>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setConfirmDeleteLib(null)}
-                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer"
+                disabled={deletingLibrary}
+                onClick={() => {
+                  setDeleteLibraryError(null);
+                  setConfirmDeleteLib(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
+                disabled={deletingLibrary}
                 onClick={handleConfirmDeleteLibrary}
-                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-red cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-red cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
               >
-                Delete
+                {deletingLibrary && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{deletingLibrary ? 'Deleting...' : 'Delete'}</span>
               </button>
             </div>
           </div>
@@ -3358,20 +3585,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <p className="text-xs font-semibold text-slate-600">
               Delete credential <span className="font-mono font-bold">{confirmDeleteCode}</span>? Users holding this PIN or code will no longer be able to log in.
             </p>
+            {deleteCodeError && (
+              <div className="p-3 rounded-2xl bg-red-50 border-2 border-red-200 text-xs font-bold text-red-700 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{deleteCodeError}</span>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setConfirmDeleteCode(null)}
-                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer"
+                disabled={deletingCode}
+                onClick={() => {
+                  setDeleteCodeError(null);
+                  setConfirmDeleteCode(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
               <button
                 type="button"
+                disabled={deletingCode}
                 onClick={handleConfirmDeleteCode}
-                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-red cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-black duo-btn-red cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
               >
-                Delete
+                {deletingCode && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{deletingCode ? 'Deleting...' : 'Delete'}</span>
               </button>
             </div>
           </div>
@@ -3529,7 +3768,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <p className="text-[11px] font-bold text-slate-500 truncate mt-0.5 tabular-nums">
                   {selectedStudentAlertModal.alert.libraryName} · Seat #
                   {selectedStudentAlertModal.alert.student.seat_number} ·{' '}
-                  {selectedStudentAlertModal.alert.student.shift.split('(')[0].trim()}
+                  {(selectedStudentAlertModal.alert.student.shift || '').split('(')[0].trim()}
                 </p>
               </div>
               <button

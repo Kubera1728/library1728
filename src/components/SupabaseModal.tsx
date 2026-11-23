@@ -37,6 +37,8 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
   } | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
       setAnonKey(config.anonKey);
       setTestResult(null);
       setStatusMessage(null);
+      setConfirmReset(false);
     }
   }, [isOpen]);
 
@@ -96,15 +99,22 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
   };
 
   const handleClearAll = async () => {
-    if (confirm('Are you sure you want to completely clear all data? The app will become completely blank/clean.')) {
-      try {
-        await dataService.clearAllData();
-        playSound('pop');
-        setStatusMessage('All data cleared successfully! Database is completely clean.');
-        if (onDataChanged) onDataChanged();
-      } catch (e: any) {
-        setStatusMessage(`Error clearing: ${e.message}`);
-      }
+    if (!confirmReset) {
+      setConfirmReset(true);
+      playSound('pop');
+      return;
+    }
+    setClearing(true);
+    try {
+      await dataService.clearAllData();
+      playSound('pop');
+      setConfirmReset(false);
+      setStatusMessage('All data cleared successfully! Database is completely clean.');
+      if (onDataChanged) onDataChanged();
+    } catch (e: any) {
+      setStatusMessage(`Error clearing: ${e.message}`);
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -311,10 +321,11 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
 
         {/* Starter Data & Clean State Tools */}
         <div className="mt-5 pt-4 border-t-2 border-[#f0f0f0] flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
+              type="button"
               onClick={handleSeedStarter}
-              disabled={seeding}
+              disabled={seeding || clearing}
               className="px-3.5 py-2 rounded-xl text-xs font-black duo-btn-yellow flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               title="Populate test admin, library owners, and student records"
             >
@@ -323,16 +334,35 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
             </button>
 
             <button
+              type="button"
               onClick={handleClearAll}
-              className="px-3.5 py-2 rounded-xl text-xs font-black duo-btn-white text-red-600 flex items-center gap-1.5 cursor-pointer hover:text-red-700"
+              disabled={clearing}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-50 ${
+                confirmReset
+                  ? 'duo-btn-red text-white'
+                  : 'duo-btn-white text-red-600 hover:text-red-700'
+              }`}
               title="Reset database to 100% blank clean state"
             >
-              <Trash2 className="w-3.5 h-3.5 text-red-500" />
-              <span>Reset Clean State</span>
+              <Trash2 className={`w-3.5 h-3.5 ${confirmReset ? 'text-white' : 'text-red-500'}`} />
+              <span>
+                {clearing ? 'Clearing...' : confirmReset ? 'Confirm Clear All?' : 'Reset Clean State'}
+              </span>
             </button>
+
+            {confirmReset && !clearing && (
+              <button
+                type="button"
+                onClick={() => setConfirmReset(false)}
+                className="px-3 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer"
+              >
+                Cancel
+              </button>
+            )}
           </div>
 
           <button
+            type="button"
             onClick={onClose}
             className="px-5 py-2 rounded-xl text-xs font-black duo-btn-white cursor-pointer ml-auto"
           >

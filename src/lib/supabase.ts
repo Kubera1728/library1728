@@ -38,9 +38,14 @@ export interface SupabaseConfig {
   anonKey: string;
 }
 
+declare const __STUDYLINGO_BUILD_SUPABASE_URL__: string | undefined;
+declare const __STUDYLINGO_BUILD_SUPABASE_ANON_KEY__: string | undefined;
+
 interface RuntimePublicEnv {
   VITE_SUPABASE_URL?: string;
   VITE_SUPABASE_ANON_KEY?: string;
+  NEXT_PUBLIC_SUPABASE_URL?: string;
+  NEXT_PUBLIC_SUPABASE_ANON_KEY?: string;
 }
 
 function sanitizeEnvUrl(raw?: string | null): string {
@@ -55,37 +60,88 @@ function sanitizeEnvKey(raw?: string | null): string {
   return val;
 }
 
+function readProcessEnv(key: string): string {
+  try {
+    if (typeof process !== 'undefined' && process && process.env) {
+      return String(process.env[key] || '').trim();
+    }
+  } catch {
+    // Ignore when process is unavailable in browser
+  }
+  return '';
+}
+
 function getEnvSupabaseConfig(): SupabaseConfig {
   const runtimeEnv: RuntimePublicEnv =
     (typeof window !== 'undefined' && (window as any).__STUDYLINGO_ENV__) || {};
+
+  const buildUrl =
+    typeof __STUDYLINGO_BUILD_SUPABASE_URL__ !== 'undefined'
+      ? __STUDYLINGO_BUILD_SUPABASE_URL__
+      : '';
+  const buildKey =
+    typeof __STUDYLINGO_BUILD_SUPABASE_ANON_KEY__ !== 'undefined'
+      ? __STUDYLINGO_BUILD_SUPABASE_ANON_KEY__
+      : '';
+
+  const viteEnv: Record<string, string | undefined> =
+    typeof import.meta !== 'undefined' && import.meta.env
+      ? (import.meta.env as Record<string, string | undefined>)
+      : {};
+
   const url =
     sanitizeEnvUrl(runtimeEnv.VITE_SUPABASE_URL) ||
-    sanitizeEnvUrl((import.meta as any).env?.VITE_SUPABASE_URL) ||
-    sanitizeEnvUrl((import.meta as any).env?.SUPABASE_URL);
+    sanitizeEnvUrl(runtimeEnv.NEXT_PUBLIC_SUPABASE_URL) ||
+    sanitizeEnvUrl(buildUrl) ||
+    sanitizeEnvUrl(import.meta.env.VITE_SUPABASE_URL) ||
+    sanitizeEnvUrl(viteEnv.NEXT_PUBLIC_SUPABASE_URL) ||
+    sanitizeEnvUrl(viteEnv.VITE_PUBLIC_SUPABASE_URL) ||
+    sanitizeEnvUrl(viteEnv.SUPABASE_URL) ||
+    sanitizeEnvUrl(readProcessEnv('VITE_SUPABASE_URL')) ||
+    sanitizeEnvUrl(readProcessEnv('NEXT_PUBLIC_SUPABASE_URL')) ||
+    sanitizeEnvUrl(readProcessEnv('SUPABASE_URL'));
+
   const anonKey =
     sanitizeEnvKey(runtimeEnv.VITE_SUPABASE_ANON_KEY) ||
-    sanitizeEnvKey((import.meta as any).env?.VITE_SUPABASE_ANON_KEY) ||
-    sanitizeEnvKey((import.meta as any).env?.SUPABASE_ANON_KEY);
+    sanitizeEnvKey(runtimeEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
+    sanitizeEnvKey(buildKey) ||
+    sanitizeEnvKey(import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    sanitizeEnvKey(viteEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY) ||
+    sanitizeEnvKey(viteEnv.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY) ||
+    sanitizeEnvKey(viteEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY) ||
+    sanitizeEnvKey(viteEnv.VITE_PUBLIC_SUPABASE_ANON_KEY) ||
+    sanitizeEnvKey(viteEnv.SUPABASE_ANON_KEY) ||
+    sanitizeEnvKey(readProcessEnv('VITE_SUPABASE_ANON_KEY')) ||
+    sanitizeEnvKey(readProcessEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY')) ||
+    sanitizeEnvKey(readProcessEnv('VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY')) ||
+    sanitizeEnvKey(readProcessEnv('NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY')) ||
+    sanitizeEnvKey(readProcessEnv('SUPABASE_ANON_KEY'));
+
   return { url, anonKey };
+}
+
+function readLocalStorageSafe(key: string): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
 }
 
 export function getSupabaseConfigSource(): 'env' | 'local' | 'none' {
   const envCfg = getEnvSupabaseConfig();
   if (envCfg.url && envCfg.anonKey) return 'env';
-  if (typeof window !== 'undefined') {
-    const localUrl = sanitizeEnvUrl(localStorage.getItem(STORAGE_KEY_URL));
-    const localKey = sanitizeEnvKey(localStorage.getItem(STORAGE_KEY_ANON));
-    if (localUrl && localKey) return 'local';
-  }
+  const localUrl = sanitizeEnvUrl(readLocalStorageSafe(STORAGE_KEY_URL));
+  const localKey = sanitizeEnvKey(readLocalStorageSafe(STORAGE_KEY_ANON));
+  if (localUrl && localKey) return 'local';
   return 'none';
 }
 
 export function getStoredSupabaseConfig(): SupabaseConfig {
   const envCfg = getEnvSupabaseConfig();
-  const localUrl =
-    typeof window !== 'undefined' ? sanitizeEnvUrl(localStorage.getItem(STORAGE_KEY_URL)) : '';
-  const localKey =
-    typeof window !== 'undefined' ? sanitizeEnvKey(localStorage.getItem(STORAGE_KEY_ANON)) : '';
+  const localUrl = sanitizeEnvUrl(readLocalStorageSafe(STORAGE_KEY_URL));
+  const localKey = sanitizeEnvKey(readLocalStorageSafe(STORAGE_KEY_ANON));
 
   return {
     url: envCfg.url || localUrl,
@@ -93,39 +149,90 @@ export function getStoredSupabaseConfig(): SupabaseConfig {
   };
 }
 
+export function getSupabaseDiagnostics(): {
+  configured: boolean;
+  source: 'env' | 'local' | 'none';
+  urlPresent: boolean;
+  keyPresent: boolean;
+  urlHost: string | null;
+} {
+  const { url, anonKey } = getStoredSupabaseConfig();
+  let urlHost: string | null = null;
+  if (url) {
+    try {
+      urlHost = new URL(url).host;
+    } catch {
+      urlHost = 'invalid-url';
+    }
+  }
+  return {
+    configured: Boolean(url && anonKey && url.startsWith('http')),
+    source: getSupabaseConfigSource(),
+    urlPresent: Boolean(url),
+    keyPresent: Boolean(anonKey),
+    urlHost,
+  };
+}
+
+let pendingHydrationPromise: Promise<boolean> | null = null;
+
 export async function hydrateSupabaseConfigFromServer(): Promise<boolean> {
   if (typeof window === 'undefined' || typeof fetch !== 'function') return false;
   if (isSupabaseConfigured()) return true;
-  try {
-    const res = await fetch('/api/config/public', { cache: 'no-store' });
-    if (!res.ok) return false;
-    const data = (await res.json()) as { supabaseUrl?: string; supabaseAnonKey?: string };
-    const url = sanitizeEnvUrl(data?.supabaseUrl);
-    const anonKey = sanitizeEnvKey(data?.supabaseAnonKey);
-    if (!url || !anonKey) return false;
-    (window as any).__STUDYLINGO_ENV__ = {
-      VITE_SUPABASE_URL: url,
-      VITE_SUPABASE_ANON_KEY: anonKey,
-    };
-    cachedClient = null;
-    return true;
-  } catch {
-    return false;
-  }
+  if (pendingHydrationPromise) return pendingHydrationPromise;
+
+  pendingHydrationPromise = (async () => {
+    try {
+      const res = await fetch('/api/config/public', { cache: 'no-store' });
+      if (!res.ok) {
+        console.warn(`[Supabase] /api/config/public returned HTTP ${res.status}`);
+        return false;
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        console.warn('[Supabase] /api/config/public did not return JSON');
+        return false;
+      }
+      const data = (await res.json()) as { supabaseUrl?: string; supabaseAnonKey?: string };
+      const url = sanitizeEnvUrl(data?.supabaseUrl);
+      const anonKey = sanitizeEnvKey(data?.supabaseAnonKey);
+      if (!url || !anonKey) {
+        console.warn('[Supabase] /api/config/public returned empty Supabase credentials');
+        return false;
+      }
+      (window as any).__STUDYLINGO_ENV__ = {
+        VITE_SUPABASE_URL: url,
+        VITE_SUPABASE_ANON_KEY: anonKey,
+      };
+      cachedClient = null;
+      return true;
+    } catch (err) {
+      console.warn('[Supabase] Failed to hydrate public config from server:', err);
+      return false;
+    } finally {
+      pendingHydrationPromise = null;
+    }
+  })();
+
+  return pendingHydrationPromise;
 }
 
 export function saveStoredSupabaseConfig(config: SupabaseConfig): void {
   if (typeof window !== 'undefined') {
-    if (config.url) {
-      localStorage.setItem(STORAGE_KEY_URL, config.url.trim());
-    } else {
-      localStorage.removeItem(STORAGE_KEY_URL);
-    }
+    try {
+      if (config.url) {
+        localStorage.setItem(STORAGE_KEY_URL, config.url.trim());
+      } else {
+        localStorage.removeItem(STORAGE_KEY_URL);
+      }
 
-    if (config.anonKey) {
-      localStorage.setItem(STORAGE_KEY_ANON, config.anonKey.trim());
-    } else {
-      localStorage.removeItem(STORAGE_KEY_ANON);
+      if (config.anonKey) {
+        localStorage.setItem(STORAGE_KEY_ANON, config.anonKey.trim());
+      } else {
+        localStorage.removeItem(STORAGE_KEY_ANON);
+      }
+    } catch {
+      // Ignore storage write restrictions in strict privacy browsers
     }
   }
   cachedClient = null; // reset client
@@ -164,7 +271,7 @@ export function getSupabaseClient(): SupabaseClient | null {
     try {
       cachedClient = createClient(url, anonKey);
     } catch (e) {
-      console.error('Error creating Supabase client:', e);
+      console.error('[Supabase] Error creating Supabase client:', e);
       return null;
     }
   }
@@ -646,7 +753,13 @@ function getLocalDatabase(): LocalDatabase {
 }
 
 function saveLocalDatabase(db: LocalDatabase): void {
-  localStorage.setItem(STORAGE_KEY_LOCAL_DB, JSON.stringify(db));
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(STORAGE_KEY_LOCAL_DB, JSON.stringify(db));
+    }
+  } catch {
+    // Ignore localStorage quota/privacy errors
+  }
 }
 
 async function apiGetJson<T>(url: string): Promise<T | null> {
@@ -850,12 +963,18 @@ export const dataService = {
         .order('name', { ascending: true });
 
       if (error) {
-        console.error('Error fetching libraries:', error);
+        console.error('[Supabase] Error fetching libraries:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
         throw new Error(error.message);
       }
       return (data || []) as Library[];
     }
 
+    console.warn('[Supabase] getAllLibraries called without active Supabase client; falling back to local bootstrap.');
     const db = await fetchAndMergeLocalBootstrap();
     return db.libraries;
   },
@@ -905,13 +1024,20 @@ export const dataService = {
       if (libError) throw new Error(libError.message);
 
       if (ownerCode) {
+        const cleanOwnerCode = ownerCode.trim().toUpperCase();
         const { error: codeError } = await client.from('all_logins').insert({
-          code: ownerCode.trim().toUpperCase(),
+          code: cleanOwnerCode,
           role: 'owner',
           reference_id: library.id,
           is_active: true,
         });
-        if (codeError) throw new Error(codeError.message);
+        if (codeError) {
+          await client.from('libraries').delete().eq('id', library.id);
+          if (codeError.code === '23505') {
+            throw new Error(`Owner code "${cleanOwnerCode}" is already in use. Please choose another code.`);
+          }
+          throw new Error(codeError.message);
+        }
       }
       return;
     }
@@ -959,20 +1085,46 @@ export const dataService = {
   async deleteLibrary(id: string): Promise<void> {
     const client = getSupabaseClient();
     if (client) {
-      // delete associated logins, shifts & students
+      // Collect student IDs so their PIN records in all_logins are also cleaned up cleanly
+      const { data: libStudents } = await client
+        .from('students')
+        .select('id')
+        .eq('library_id', id);
+      const studentIds = Array.isArray(libStudents)
+        ? libStudents.map((s: any) => s.id).filter(Boolean)
+        : [];
+
+      if (studentIds.length > 0) {
+        await client.from('all_logins').delete().in('reference_id', studentIds);
+      }
       await client.from('all_logins').delete().eq('reference_id', id);
+
+      // Clean up dependent tables gracefully before deleting students and library
+      await client.from('attendance_logs').delete().eq('library_id', id);
+      await client.from('seat_qr_codes').delete().eq('library_id', id);
+      await client.from('broadcast_requests').delete().eq('library_id', id);
       await client.from('shifts').delete().eq('library_id', id);
-      await client.from('students').delete().eq('library_id', id);
+
+      const { error: stuDelErr } = await client.from('students').delete().eq('library_id', id);
+      if (stuDelErr && !isMissingRelationError(stuDelErr)) {
+        throw new Error(stuDelErr.message);
+      }
+
       const { error } = await client.from('libraries').delete().eq('id', id);
       if (error) throw new Error(error.message);
       return;
     }
 
     const db = getLocalDatabase();
+    const removedStudentIds = new Set(
+      db.students.filter((s) => s.library_id === id).map((s) => s.id)
+    );
     db.libraries = db.libraries.filter((l) => l.id !== id);
     db.students = db.students.filter((s) => s.library_id !== id);
     db.shifts = (db.shifts || []).filter((sh) => sh.library_id !== id);
-    db.logins = db.logins.filter((l) => l.reference_id !== id);
+    db.logins = db.logins.filter(
+      (l) => l.reference_id !== id && (!l.reference_id || !removedStudentIds.has(l.reference_id))
+    );
     saveLocalDatabase(db);
     await apiPostJson('/api/store/sync', { deleteLibraryId: id });
   },
@@ -981,15 +1133,30 @@ export const dataService = {
   async getAllStudents(): Promise<Student[]> {
     const client = getSupabaseClient();
     if (client) {
-      const { data, error } = await client
+      let { data, error } = await client
         .from('students')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw new Error(error.message);
+      if (error && (error.message || '').toLowerCase().includes('created_at')) {
+        const retry = await client.from('students').select('*');
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        console.error('[Supabase] Error fetching students:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+        throw new Error(error.message);
+      }
       return (data || []) as Student[];
     }
 
+    console.warn('[Supabase] getAllStudents called without active Supabase client; falling back to local bootstrap.');
     const db = await fetchAndMergeLocalBootstrap();
     return db.students;
   },
@@ -1459,12 +1626,26 @@ export const dataService = {
   async getAllLogins(): Promise<LoginRecord[]> {
     const client = getSupabaseClient();
     if (client) {
-      const { data, error } = await client
+      let { data, error } = await client
         .from('all_logins')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw new Error(error.message);
+      if (error && (error.message || '').toLowerCase().includes('created_at')) {
+        const retry = await client.from('all_logins').select('*');
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        console.error('[Supabase] Error fetching all_logins:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+        throw new Error(error.message);
+      }
       const rows = ((data || []) as LoginRecord[]).map((r) => ({ ...r }));
 
       const usedCodes = new Set(
@@ -1951,7 +2132,14 @@ export const dataService = {
         // Silently purge expired (>7 days) rows in Supabase without blocking reads
         void client.from('broadcast_requests').delete().lt('created_at', cutoffIso);
 
-        if (!error && Array.isArray(data)) {
+        if (error) {
+          console.error('[Supabase] Error fetching broadcast_requests:', {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint,
+          });
+        } else if (Array.isArray(data)) {
           const mergedMap = new Map<string, BroadcastRequest>();
           for (const item of data as BroadcastRequest[]) {
             if (!deletedSet.has(item.id) && isWithinBroadcastRetention(item.created_at)) {
@@ -1972,7 +2160,7 @@ export const dataService = {
           return merged;
         }
       } catch (err) {
-        console.warn('Broadcast requests Supabase read skipped, using local storage:', err);
+        console.error('[Supabase] Broadcast requests query threw exception:', err);
       }
     }
 

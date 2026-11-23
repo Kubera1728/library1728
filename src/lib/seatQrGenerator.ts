@@ -75,18 +75,19 @@ export function compareSeatCodesAsc(rawSeatA: string, rawSeatB: string): number 
   return (rawSeatA || '').localeCompare(rawSeatB || '', undefined, { numeric: true });
 }
 
+export const PRODUCTION_APP_ORIGIN = 'https://library1728.vercel.app';
+
 /**
- * Base origin for scannable public seat QR URLs
+ * Base origin for scannable public seat & owner QR URLs.
+ * Always resolves to the live production Vercel deployment so printed QRs
+ * never embed temporary AI Studio preview or localhost URLs.
  */
 export function getQrScanBaseOrigin(): string {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
-  }
-  return 'https://studylingo.app';
+  return PRODUCTION_APP_ORIGIN;
 }
 
 /**
- * Public web-scannable QR URL format for every study seat (e.g., https://domain/scan?seat=A-4&lib=...)
+ * Public web-scannable QR URL format for every study seat (e.g., https://library1728.vercel.app/scan?seat=A-4&lib=...)
  */
 export function encodeSeatQrPayload(
   libraryId: string,
@@ -100,6 +101,21 @@ export function encodeSeatQrPayload(
     lib: libraryId.trim(),
   });
   return `${origin}/scan?${params.toString()}`;
+}
+
+/**
+ * Public web-scannable Owner Master QR URL format mapped to a specific library ID
+ * (e.g., https://library1728.vercel.app/owner?lib=...)
+ */
+export function encodeOwnerMasterQrPayload(
+  libraryId: string,
+  baseOrigin?: string
+): string {
+  const origin = (baseOrigin || getQrScanBaseOrigin()).replace(/\/+$/, '');
+  const params = new URLSearchParams({
+    lib: libraryId.trim(),
+  });
+  return `${origin}/owner?${params.toString()}`;
 }
 
 export interface SeatQrMatrixInfo {
@@ -894,4 +910,221 @@ export function generateSeatQrPngBytes(
   drawBadgeTextVectorAA(buf, size, badgeText, centerPx, centerPx, fontHeight, lightRgb);
 
   return encodePngFromRgba(buf, size, size, deflateFn);
+}
+
+/**
+ * Builds Level-H QR matrix for a Library Owner Master QR (mapped to libraryId).
+ */
+export function createOwnerMasterQrMatrix(
+  libraryId: string,
+  baseOrigin?: string
+): SeatQrMatrixInfo {
+  const payload = encodeOwnerMasterQrPayload(libraryId, baseOrigin);
+  const badgeText = 'OWNER';
+
+  const qr = QRCode.create(payload, {
+    errorCorrectionLevel: 'H',
+  });
+
+  const moduleCount = qr.modules.size;
+  const quietZone = 2;
+  const cutoutFraction = 0.168;
+  const cutoutRadiusModules = Math.max(4.0, moduleCount * cutoutFraction);
+
+  return {
+    payload,
+    seatLabel: 'OWNER',
+    badgeText,
+    moduleCount,
+    quietZone,
+    cutoutRadiusModules,
+    isDark: (r: number, c: number) => Boolean(qr.modules.get(r, c)),
+  };
+}
+
+/**
+ * Renders a crisp standalone SVG for the Library Owner Master QR with Level-H ECC & OWNER badge.
+ */
+export function generateOwnerMasterQrSvg(
+  libraryId: string,
+  options: SeatQrStyleOptions = {}
+): string {
+  const size = Math.max(160, Math.round(options.size || 360));
+  const darkColor = options.darkColor || '#0f172a';
+  const lightColor = options.lightColor || '#ffffff';
+  const accentColor = options.accentColor || '#58cc02';
+
+  const matrix = createOwnerMasterQrMatrix(libraryId, options.baseOrigin);
+  const { moduleCount, quietZone, cutoutRadiusModules, badgeText } = matrix;
+  const totalModules = moduleCount + quietZone * 2;
+  const modSize = size / totalModules;
+
+  const paths: string[] = [];
+  const dotSize = modSize * 0.9;
+  const dotOffset = (modSize - dotSize) / 2;
+  const dotRadius = dotSize * 0.28;
+
+  for (let r = 0; r < moduleCount; r++) {
+    for (let c = 0; c < moduleCount; c++) {
+      if (isFinderZone(r, c, moduleCount)) continue;
+      if (isModuleInCenterCutout(r, c, moduleCount, cutoutRadiusModules)) continue;
+      if (!matrix.isDark(r, c)) continue;
+
+      const x = ((quietZone + c) * modSize + dotOffset).toFixed(2);
+      const y = ((quietZone + r) * modSize + dotOffset).toFixed(2);
+      const w = dotSize.toFixed(2);
+      const rx = dotRadius.toFixed(2);
+      paths.push(`<rect x="${x}" y="${y}" width="${w}" height="${w}" rx="${rx}" fill="${darkColor}"/>`);
+    }
+  }
+
+  const finderOrigins = [
+    [0, 0],
+    [0, moduleCount - 7],
+    [moduleCount - 7, 0],
+  ];
+  const finderXml = finderOrigins
+    .map(([fr, fc]) => {
+      const fx = (quietZone + fc) * modSize;
+      const fy = (quietZone + fr) * modSize;
+      const outer = 7 * modSize;
+      const mid = 5 * modSize;
+      const inner = 3 * modSize;
+      return [
+        `<rect x="${fx.toFixed(2)}" y="${fy.toFixed(2)}" width="${outer.toFixed(2)}" height="${outer.toFixed(2)}" rx="${(modSize * 1.35).toFixed(2)}" fill="${darkColor}"/>`,
+        `<rect x="${(fx + modSize).toFixed(2)}" y="${(fy + modSize).toFixed(2)}" width="${mid.toFixed(2)}" height="${mid.toFixed(2)}" rx="${(modSize * 0.9).toFixed(2)}" fill="${lightColor}"/>`,
+        `<rect x="${(fx + 2 * modSize).toFixed(2)}" y="${(fy + 2 * modSize).toFixed(2)}" width="${inner.toFixed(2)}" height="${inner.toFixed(2)}" rx="${(modSize * 0.75).toFixed(2)}" fill="${darkColor}"/>`,
+      ].join('');
+    })
+    .join('');
+
+  const centerPx = size / 2;
+  const haloRadiusPx = cutoutRadiusModules * modSize;
+  const badgeRadiusPx = haloRadiusPx * 0.86;
+  const ringRadiusPx = badgeRadiusPx * 0.89;
+  const fontSizePx = badgeRadiusPx * 0.52;
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" shape-rendering="geometricPrecision">`,
+    `<rect width="${size}" height="${size}" fill="${lightColor}"/>`,
+    finderXml,
+    paths.join(''),
+    `<circle cx="${centerPx.toFixed(2)}" cy="${centerPx.toFixed(2)}" r="${haloRadiusPx.toFixed(2)}" fill="${lightColor}"/>`,
+    `<circle cx="${centerPx.toFixed(2)}" cy="${centerPx.toFixed(2)}" r="${badgeRadiusPx.toFixed(2)}" fill="${darkColor}"/>`,
+    `<circle cx="${centerPx.toFixed(2)}" cy="${centerPx.toFixed(2)}" r="${ringRadiusPx.toFixed(2)}" fill="none" stroke="${accentColor}" stroke-width="${Math.max(1.5, badgeRadiusPx * 0.08).toFixed(2)}"/>`,
+    `<text x="${centerPx.toFixed(2)}" y="${(centerPx + fontSizePx * 0.35).toFixed(2)}" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-weight="900" font-size="${fontSizePx.toFixed(2)}" letter-spacing="0.02em" fill="${lightColor}">${badgeText}</text>`,
+    `</svg>`,
+  ].join('');
+}
+
+/**
+ * Browser HTML5 Canvas PNG DataURL renderer for the Library Owner Master QR
+ */
+export async function generateOwnerMasterQrDataUrl(
+  libraryId: string,
+  width: number = 360,
+  baseOrigin?: string
+): Promise<string> {
+  const size = Math.max(180, Math.round(width));
+  if (typeof document === 'undefined') {
+    const svg = generateOwnerMasterQrSvg(libraryId, { size, baseOrigin });
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
+  const matrix = createOwnerMasterQrMatrix(libraryId, baseOrigin);
+  const { moduleCount, quietZone, cutoutRadiusModules, badgeText } = matrix;
+  const totalModules = moduleCount + quietZone * 2;
+  const modSize = size / totalModules;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    const svg = generateOwnerMasterQrSvg(libraryId, { size, baseOrigin });
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }
+
+  const darkColor = '#0f172a';
+  const lightColor = '#ffffff';
+  const accentColor = '#58cc02';
+
+  ctx.fillStyle = lightColor;
+  ctx.fillRect(0, 0, size, size);
+
+  const drawRoundedRect = (x: number, y: number, w: number, h: number, r: number, fill: string) => {
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + w - radius, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+    ctx.lineTo(x + radius, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  };
+
+  const finderOrigins = [
+    [0, 0],
+    [0, moduleCount - 7],
+    [moduleCount - 7, 0],
+  ];
+  for (const [fr, fc] of finderOrigins) {
+    const fx = (quietZone + fc) * modSize;
+    const fy = (quietZone + fr) * modSize;
+    drawRoundedRect(fx, fy, 7 * modSize, 7 * modSize, modSize * 1.35, darkColor);
+    drawRoundedRect(fx + modSize, fy + modSize, 5 * modSize, 5 * modSize, modSize * 0.9, lightColor);
+    drawRoundedRect(fx + 2 * modSize, fy + 2 * modSize, 3 * modSize, 3 * modSize, modSize * 0.75, darkColor);
+  }
+
+  const dotSize = modSize * 0.9;
+  const dotOffset = (modSize - dotSize) / 2;
+  const dotRadius = dotSize * 0.28;
+
+  for (let r = 0; r < moduleCount; r++) {
+    for (let c = 0; c < moduleCount; c++) {
+      if (isFinderZone(r, c, moduleCount)) continue;
+      if (isModuleInCenterCutout(r, c, moduleCount, cutoutRadiusModules)) continue;
+      if (!matrix.isDark(r, c)) continue;
+
+      const x = (quietZone + c) * modSize + dotOffset;
+      const y = (quietZone + r) * modSize + dotOffset;
+      drawRoundedRect(x, y, dotSize, dotSize, dotRadius, darkColor);
+    }
+  }
+
+  const centerPx = size / 2;
+  const haloRadiusPx = cutoutRadiusModules * modSize;
+  const badgeRadiusPx = haloRadiusPx * 0.86;
+  const ringRadiusPx = badgeRadiusPx * 0.89;
+
+  ctx.beginPath();
+  ctx.arc(centerPx, centerPx, haloRadiusPx, 0, Math.PI * 2);
+  ctx.fillStyle = lightColor;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(centerPx, centerPx, badgeRadiusPx, 0, Math.PI * 2);
+  ctx.fillStyle = darkColor;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(centerPx, centerPx, ringRadiusPx, 0, Math.PI * 2);
+  ctx.strokeStyle = accentColor;
+  ctx.lineWidth = Math.max(1.5, badgeRadiusPx * 0.08);
+  ctx.stroke();
+
+  const fontSizePx = badgeRadiusPx * 0.52;
+  ctx.fillStyle = lightColor;
+  ctx.font = `900 ${fontSizePx.toFixed(1)}px "Inter", "Segoe UI", system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(badgeText, centerPx, centerPx + fontSizePx * 0.04);
+
+  return canvas.toDataURL('image/png');
 }

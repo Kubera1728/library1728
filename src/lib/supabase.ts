@@ -18,6 +18,7 @@ import { buildCanonicalSeatLabels } from './masterQrPdfBuilder';
 import {
   encodeSeatQrPayload,
   formatSeatBadgeNumber,
+  getQrScanBaseOrigin,
   normalizeSeatLabel,
 } from './seatQrGenerator';
 
@@ -2850,7 +2851,7 @@ export const dataService = {
       }
     }
 
-    const origin = baseOrigin || (typeof window !== 'undefined' ? window.location.origin : 'https://studylingo.app');
+    const origin = baseOrigin || getQrScanBaseOrigin();
     const nowIso = new Date().toISOString();
     const toSync: SeatQrReference[] = [];
 

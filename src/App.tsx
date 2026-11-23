@@ -32,6 +32,18 @@ function parseScanRouteFromLocation(): ScanRouteParams | null {
   };
 }
 
+function parseOwnerRouteFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+  const params = new URLSearchParams(window.location.search);
+  if (pathname === '/owner' || pathname === '/owner-login') {
+    const lib = (params.get('lib') || params.get('libraryId') || '').trim();
+    return lib || null;
+  }
+  const ownerLib = (params.get('ownerLib') || '').trim();
+  return ownerLib || null;
+}
+
 export default function App() {
   const [session, setSession] = useState<AuthSession | null>(() => {
     try {
@@ -44,6 +56,9 @@ export default function App() {
 
   const [scanRoute, setScanRoute] = useState<ScanRouteParams | null>(() =>
     parseScanRouteFromLocation()
+  );
+  const [ownerRouteLibId, setOwnerRouteLibId] = useState<string | null>(() =>
+    parseOwnerRouteFromLocation()
   );
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [configVersion, setConfigVersion] = useState(0);
@@ -74,10 +89,11 @@ export default function App() {
     };
   }, []);
 
-  // Listen to browser navigation (back/forward) for /scan route
+  // Listen to browser navigation (back/forward) for /scan and /owner routes
   useEffect(() => {
     const handlePopState = () => {
       setScanRoute(parseScanRouteFromLocation());
+      setOwnerRouteLibId(parseOwnerRouteFromLocation());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -93,11 +109,25 @@ export default function App() {
   }, [session]);
 
   const navigateToHome = () => {
-    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+    if (typeof window !== 'undefined' && (window.location.pathname !== '/' || window.location.search)) {
       window.history.pushState({}, '', '/');
     }
     setScanRoute(null);
+    setOwnerRouteLibId(null);
   };
+
+  // If scanning Owner Master QR while already signed in as Owner for that exact library, land cleanly on OwnerDashboard
+  const isOwnerQrAlreadySignedIn = Boolean(
+    ownerRouteLibId &&
+      session?.role === 'owner' &&
+      (session.reference_id === ownerRouteLibId || session.library?.id === ownerRouteLibId)
+  );
+
+  useEffect(() => {
+    if (isOwnerQrAlreadySignedIn) {
+      navigateToHome();
+    }
+  }, [isOwnerQrAlreadySignedIn]);
 
   const handleLoginSuccess = (newSession: AuthSession) => {
     setSession(newSession);
@@ -118,7 +148,8 @@ export default function App() {
     setConfigVersion((v) => v + 1);
   };
 
-  const isDashboardMode = Boolean(session && !scanRoute);
+  const needsOwnerQrLogin = Boolean(ownerRouteLibId && !isOwnerQrAlreadySignedIn);
+  const isDashboardMode = Boolean(session && !scanRoute && !needsOwnerQrLogin);
 
   return (
     <div
@@ -128,11 +159,11 @@ export default function App() {
     >
       {/* Top Navbar */}
       <Navbar
-        session={scanRoute ? null : session}
+        session={scanRoute || needsOwnerQrLogin ? null : session}
         onLogout={handleLogout}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onSelectTab={(tab) => {
-          if (tab === 'home' && scanRoute) {
+          if (tab === 'home' && (scanRoute || needsOwnerQrLogin)) {
             navigateToHome();
           }
         }}
@@ -140,7 +171,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className={`flex-1 ${isDashboardMode ? 'min-h-0 overflow-hidden flex flex-col' : ''}`}>
-        {!configReady && (session || scanRoute) ? (
+        {!configReady && (session || scanRoute || ownerRouteLibId) ? (
           <div className="flex-1 flex items-center justify-center p-6 text-xs font-bold text-slate-500">
             Connecting to database...
           </div>
@@ -151,9 +182,11 @@ export default function App() {
             onNavigateHome={navigateToHome}
             onOpenStudentSession={handleLoginSuccess}
           />
-        ) : !session ? (
+        ) : needsOwnerQrLogin || !session ? (
           <LoginScreen
             onLoginSuccess={handleLoginSuccess}
+            targetOwnerLibraryId={needsOwnerQrLogin ? ownerRouteLibId : null}
+            onClearTargetLibrary={navigateToHome}
           />
         ) : session.role === 'admin' ? (
           <AdminDashboard

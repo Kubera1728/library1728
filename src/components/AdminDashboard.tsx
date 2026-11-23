@@ -49,6 +49,7 @@ import {
   downloadMasterQrPdf,
   formatSeatBadgeNumber,
   generateSeatQrDataUrl,
+  getQrScanBaseOrigin,
 } from '../lib/qrAndPdf';
 import { buildCanonicalSeatLabels } from '../lib/masterQrPdfBuilder';
 import {
@@ -1163,7 +1164,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     safeLibStudentPage * LIB_STUDENTS_PER_PAGE + LIB_STUDENTS_PER_PAGE
   );
 
-  const portalUrl = typeof window !== 'undefined' ? window.location.origin : 'https://studylingo.app';
+  const portalUrl = getQrScanBaseOrigin();
 
   const isDbConnected = isSupabaseConfigured();
 

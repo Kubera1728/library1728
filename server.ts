@@ -258,18 +258,34 @@ function formatReadableTime(timeStr?: string): string {
   }
 }
 
+const PRODUCTION_QR_BASE_ORIGIN = 'https://library1728.vercel.app';
+
+function isPreviewOrLocalHost(urlOrHost: string): boolean {
+  const lower = urlOrHost.toLowerCase();
+  return (
+    lower.includes('localhost') ||
+    lower.includes('127.0.0.1') ||
+    lower.includes('.run.app') ||
+    lower.includes('0.0.0.0')
+  );
+}
+
 function resolveRequestBaseOrigin(req: Request, explicitOrigin?: string): string {
-  if (explicitOrigin && /^https?:\/\//i.test(explicitOrigin.trim())) {
+  if (
+    explicitOrigin &&
+    /^https?:\/\//i.test(explicitOrigin.trim()) &&
+    !isPreviewOrLocalHost(explicitOrigin)
+  ) {
     return explicitOrigin.trim().replace(/\/+$/, '');
   }
   const protoHeader = String(req.headers['x-forwarded-proto'] || req.protocol || 'https')
     .split(',')[0]
     .trim();
   const hostHeader = String(req.headers['x-forwarded-host'] || req.get('host') || '').trim();
-  if (hostHeader) {
+  if (hostHeader && !isPreviewOrLocalHost(hostHeader)) {
     return `${protoHeader}://${hostHeader}`.replace(/\/+$/, '');
   }
-  return 'https://studylingo.app';
+  return PRODUCTION_QR_BASE_ORIGIN;
 }
 
 function getPublicSupabaseEnv(): { VITE_SUPABASE_URL: string; VITE_SUPABASE_ANON_KEY: string } {

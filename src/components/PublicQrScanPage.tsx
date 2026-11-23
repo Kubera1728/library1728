@@ -23,6 +23,7 @@ import {
 import { AttendanceRecord, AuthSession, Library, Student } from '../types/database';
 import { dataService, DUPLICATE_ATTENDANCE_MESSAGE, isValidStudentPin } from '../lib/supabase';
 import {
+  encodeSeatQrPayload,
   formatDurationMinutes,
   formatNumericDate,
   formatTimeDisplay,
@@ -350,10 +351,7 @@ export const PublicQrScanPage: React.FC<PublicQrScanPageProps> = ({
         return;
       }
 
-      const qrPayload =
-        typeof window !== 'undefined'
-          ? window.location.href
-          : `/scan?seat=${normalizedSeat}&lib=${cleanLibId}`;
+      const qrPayload = encodeSeatQrPayload(student.library_id, assignedSeat);
 
       const verifiedSession: AuthSession = {
         code: loginRecord.code,

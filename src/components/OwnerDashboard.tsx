@@ -46,6 +46,8 @@ import {
   Download,
   ClipboardCheck,
   FileDown,
+  Copy,
+  ShieldCheck,
 } from 'lucide-react';
 import { AttendanceRecord, BroadcastRequest, Library, Shift, Student } from '../types/database';
 import {
@@ -58,9 +60,12 @@ import {
   buildAttendanceTableRows,
   downloadAttendanceReportPdf,
   downloadMasterQrPdf,
+  downloadOwnerMasterQrPdf,
+  encodeOwnerMasterQrPayload,
   encodeSeatQrPayload,
   formatNumericDate,
   formatSeatBadgeNumber,
+  generateOwnerMasterQrDataUrl,
   generateSeatQrDataUrl,
   getLocalDateKey,
   hasShiftEndedForDate,
@@ -128,6 +133,22 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     dataUrl: string;
     payload: string;
   } | null>(null);
+  const [showOwnerMasterQrModal, setShowOwnerMasterQrModal] = useState(false);
+  const [ownerMasterQrDataUrl, setOwnerMasterQrDataUrl] = useState<string | null>(null);
+  const [downloadingOwnerMasterPdf, setDownloadingOwnerMasterPdf] = useState(false);
+  const [copiedOwnerQrLink, setCopiedOwnerQrLink] = useState(false);
+
+  const handleOpenOwnerMasterQrModal = async () => {
+    playSound('pop');
+    setCopiedOwnerQrLink(false);
+    setShowOwnerMasterQrModal(true);
+    try {
+      const dataUrl = await generateOwnerMasterQrDataUrl(libraryId, 380);
+      setOwnerMasterQrDataUrl(dataUrl);
+    } catch {
+      // Fallback handled in modal
+    }
+  };
 
   const [attendanceFilterType, setAttendanceFilterType] = useState<'daily' | 'monthly' | 'custom'>('daily');
   const [attendanceDailyDate, setAttendanceDailyDate] = useState(() => getLocalDateKey());
@@ -2003,6 +2024,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     type="button"
+                    onClick={() => void handleOpenOwnerMasterQrModal()}
+                    className="px-2.5 py-1.5 rounded-xl duo-btn-white text-slate-700 cursor-pointer min-h-[34px] flex items-center gap-1 text-[11px] font-black whitespace-nowrap"
+                    title="Owner Master QR for Desk Access"
+                    aria-label="Open Owner Master QR"
+                  >
+                    <QrCode className="w-3.5 h-3.5 text-[#58cc02]" />
+                    <span className="hidden sm:inline">Owner QR</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       setSeatCapacityInput(library?.total_seats || 50);
                       setShowSeatModal(true);
@@ -2958,7 +2989,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenOwnerMasterQrModal()}
+                      className="px-2.5 py-1.5 rounded-xl text-[11px] font-black duo-btn-green flex items-center gap-1 cursor-pointer min-h-[36px]"
+                      title="Generate & Download Owner Master QR"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Owner Master QR</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -4032,6 +4072,149 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* LIBRARY OWNER MASTER QR MODAL */}
+      {showOwnerMasterQrModal && (() => {
+        const ownerPayloadUrl = encodeOwnerMasterQrPayload(libraryId);
+        const libName = library?.name || 'StudyLingo Library';
+        const safeSlug = libName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'Library';
+
+        const handleCopyOwnerLink = async () => {
+          try {
+            await navigator.clipboard.writeText(ownerPayloadUrl);
+            setCopiedOwnerQrLink(true);
+            playSound('pop');
+            window.setTimeout(() => setCopiedOwnerQrLink(false), 2200);
+          } catch {
+            // Clipboard fallback ignored
+          }
+        };
+
+        const handleDownloadOwnerPdf = async () => {
+          if (!library || downloadingOwnerMasterPdf) return;
+          setDownloadingOwnerMasterPdf(true);
+          playSound('pop');
+          try {
+            await downloadOwnerMasterQrPdf(library);
+            playSound('success');
+          } finally {
+            setDownloadingOwnerMasterPdf(false);
+          }
+        };
+
+        return (
+          <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white border-3 border-[#e5e5e5] rounded-3xl max-w-sm w-full p-6 duo-card shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-center space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-left min-w-0">
+                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-black uppercase tracking-wider text-emerald-700 mb-1">
+                    <ShieldCheck className="w-3 h-3" />
+                    <span>Owner Desk Access</span>
+                  </div>
+                  <h3 className="font-display text-lg font-black text-[#3c3c3c] truncate">
+                    Owner Master QR
+                  </h3>
+                  <p className="text-xs font-semibold text-slate-500 truncate">
+                    {libName} · ID: <span className="font-mono font-bold text-slate-700">{libraryId}</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowOwnerMasterQrModal(false)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer shrink-0"
+                  aria-label="Close Owner Master QR modal"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="mx-auto w-56 h-56 rounded-2xl border-2 border-emerald-200 p-3 bg-white flex items-center justify-center shadow-xs">
+                {ownerMasterQrDataUrl ? (
+                  <img
+                    src={ownerMasterQrDataUrl}
+                    alt={`${libName} Owner Master QR`}
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <Loader2 className="w-7 h-7 animate-spin text-[#58cc02]" />
+                )}
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[10px] font-mono text-slate-600 break-all space-y-1.5 text-left">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-sans text-[9px] font-black uppercase tracking-wider text-slate-400">
+                    Live Owner Portal URL
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyOwnerLink()}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 hover:border-[#1cb0f6] font-sans text-[10px] font-black text-slate-700 cursor-pointer"
+                  >
+                    {copiedOwnerQrLink ? (
+                      <>
+                        <Check className="w-3 h-3 text-[#58cc02]" />
+                        <span className="text-[#46a302]">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <a
+                  href={ownerPayloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#1899d6] hover:underline font-bold block"
+                >
+                  {ownerPayloadUrl}
+                </a>
+              </div>
+
+              <p className="text-[11px] font-semibold text-slate-500 leading-snug">
+                Print and keep this QR at your reception desk. Scanning it opens the live app mapped directly to <span className="font-bold text-slate-700">{libName}</span>.
+              </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                {ownerMasterQrDataUrl ? (
+                  <a
+                    href={ownerMasterQrDataUrl}
+                    download={`${safeSlug}-Owner-Master-QR.png`}
+                    className="py-2.5 px-3 rounded-xl text-xs font-black duo-btn-white text-slate-800 flex items-center justify-center gap-1.5 cursor-pointer min-h-[42px]"
+                  >
+                    <Download className="w-4 h-4 text-[#1899d6]" />
+                    <span>Save PNG</span>
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="py-2.5 px-3 rounded-xl text-xs font-black duo-btn-white opacity-50 flex items-center justify-center gap-1.5 min-h-[42px]"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Save PNG</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadOwnerPdf()}
+                  disabled={!library || downloadingOwnerMasterPdf}
+                  className="py-2.5 px-3 rounded-xl text-xs font-black duo-btn-green flex items-center justify-center gap-1.5 cursor-pointer min-h-[42px] disabled:opacity-60"
+                >
+                  {downloadingOwnerMasterPdf ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileDown className="w-4 h-4" />
+                  )}
+                  <span>{downloadingOwnerMasterPdf ? 'Building...' : 'Desk PDF'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL 1: Update Total Seat Capacity */}
       {showSeatModal && (

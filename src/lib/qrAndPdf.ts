@@ -8,9 +8,13 @@ import autoTable from 'jspdf-autotable';
 import { AttendanceRecord, Library, Shift, Student } from '../types/database';
 import { isStudentExited } from './utils';
 import {
+  PRODUCTION_APP_ORIGIN,
   compareSeatCodesAsc,
+  encodeOwnerMasterQrPayload,
   encodeSeatQrPayload,
   formatSeatBadgeNumber,
+  generateOwnerMasterQrDataUrl,
+  generateOwnerMasterQrSvg,
   generateSeatQrDataUrl,
   generateSeatQrSvg,
   getQrScanBaseOrigin,
@@ -20,9 +24,13 @@ import { buildCanonicalSeatLabels, buildMasterQrPdfDocument } from './masterQrPd
 import { dataService, getStoredSupabaseConfig } from './supabase';
 
 export {
+  PRODUCTION_APP_ORIGIN,
   compareSeatCodesAsc,
+  encodeOwnerMasterQrPayload,
   encodeSeatQrPayload,
   formatSeatBadgeNumber,
+  generateOwnerMasterQrDataUrl,
+  generateOwnerMasterQrSvg,
   generateSeatQrDataUrl,
   generateSeatQrSvg,
   getQrScanBaseOrigin,
@@ -49,7 +57,7 @@ export function parseSeatQrPayload(raw: string): ParsedSeatQr {
   if (trimmed.includes('seat=') && (trimmed.includes('lib=') || trimmed.includes('libraryId='))) {
     try {
       const normalizedUrl = trimmed.startsWith('/')
-        ? `https://studylingo.app${trimmed}`
+        ? `${PRODUCTION_APP_ORIGIN}${trimmed}`
         : /^https?:\/\//i.test(trimmed)
         ? trimmed
         : `https://${trimmed}`;
@@ -508,6 +516,117 @@ export async function downloadMasterQrPdf(
     renderSeatPng: (seat) => generateSeatQrDataUrl(activeLibrary.id, seat, 280, origin),
   });
   doc.save(filename);
+}
+
+/**
+ * Generates and downloads a dedicated printable A4 Desk Access Card PDF
+ * containing the Library Owner Master QR mapped to the library's unique ID.
+ */
+export async function downloadOwnerMasterQrPdf(library: Library): Promise<void> {
+  const origin = getQrScanBaseOrigin();
+  const payloadUrl = encodeOwnerMasterQrPayload(library.id, origin);
+  const qrDataUrl = await generateOwnerMasterQrDataUrl(library.id, 420, origin);
+
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+    compress: true,
+  });
+
+  const pageWidth = 210;
+  const pageHeight = 297;
+  const libName = (library.name || 'Study Library').trim();
+  const libLocation = (library.location || 'Library Desk').trim();
+
+  // Top Banner
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 34, 'F');
+  doc.setFillColor(88, 204, 2);
+  doc.rect(0, 34, pageWidth, 3, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(19);
+  doc.text('OWNER MASTER QR · DESK ACCESS', pageWidth / 2, 16, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  doc.text(`${libName} (${libLocation})`, pageWidth / 2, 25, { align: 'center' });
+
+  // Main Card Frame
+  const cardX = 28;
+  const cardY = 52;
+  const cardW = pageWidth - 56;
+  const cardH = 195;
+
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.7);
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(cardX, cardY, cardW, cardH, 6, 6, 'FD');
+
+  // Card Pill Header
+  doc.setFillColor(240, 253, 244);
+  doc.roundedRect(cardX + 14, cardY + 12, cardW - 28, 12, 3, 3, 'F');
+  doc.setTextColor(22, 101, 52);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.text(`LIBRARY ID: ${library.id}`, pageWidth / 2, cardY + 19.5, { align: 'center' });
+
+  // QR Image Frame
+  const qrSize = 96;
+  const qrX = (pageWidth - qrSize) / 2;
+  const qrY = cardY + 32;
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.5);
+  doc.roundedRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, 4, 4, 'D');
+  doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize, `owner_master_${library.id}`, 'FAST');
+
+  // Library Title & Mapped URL
+  doc.setTextColor(15, 23, 42);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.text(libName, pageWidth / 2, qrY + qrSize + 15, { align: 'center' });
+
+  doc.setTextColor(24, 153, 214);
+  doc.setFont('courier', 'bold');
+  doc.setFontSize(8.5);
+  doc.text(payloadUrl, pageWidth / 2, qrY + qrSize + 23, { align: 'center' });
+
+  // Instructions Footer Inside Card
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(cardX + 12, cardY + cardH - 36, cardW - 24, 26, 3, 3, 'F');
+  doc.setTextColor(71, 85, 105);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text('QUICK RECEPTION DESK ACCESS', pageWidth / 2, cardY + cardH - 27, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.2);
+  doc.text(
+    'Scan this QR with your phone camera at the reception desk to open your',
+    pageWidth / 2,
+    cardY + cardH - 20.5,
+    { align: 'center' }
+  );
+  doc.text(
+    'Library Owner Portal directly mapped to this branch.',
+    pageWidth / 2,
+    cardY + cardH - 15.5,
+    { align: 'center' }
+  );
+
+  // Page Footer
+  doc.setTextColor(148, 163, 184);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.text(
+    `Generated ${new Date().toLocaleDateString('en-IN')} · Level-H Error Correction · ${origin}`,
+    pageWidth / 2,
+    pageHeight - 10,
+    { align: 'center' }
+  );
+
+  const safeSlug = libName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'Library';
+  doc.save(`${safeSlug}-Owner-Master-QR.pdf`);
 }
 
 /**

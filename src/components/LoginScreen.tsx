@@ -3,27 +3,71 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { ArrowRight, KeyRound, AlertCircle, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowRight, Building2, KeyRound, AlertCircle, ShieldCheck, Loader2 } from 'lucide-react';
 import { MascotOwl } from './MascotOwl';
 import { dataService, isValidStudentPin } from '../lib/supabase';
 import { playSound, fireDuolingoConfetti } from '../lib/utils';
-import { AuthSession } from '../types/database';
+import { AuthSession, Library } from '../types/database';
 
 interface LoginScreenProps {
   onLoginSuccess: (session: AuthSession) => void;
+  targetOwnerLibraryId?: string | null;
+  onClearTargetLibrary?: () => void;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({
+  onLoginSuccess,
+  targetOwnerLibraryId,
+  onClearTargetLibrary,
+}) => {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [targetLibrary, setTargetLibrary] = useState<Library | null>(null);
+  const [loadingTargetLibrary, setLoadingTargetLibrary] = useState(false);
+
+  useEffect(() => {
+    const libId = (targetOwnerLibraryId || '').trim();
+    if (!libId) {
+      setTargetLibrary(null);
+      setLoadingTargetLibrary(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingTargetLibrary(true);
+    setError(null);
+    void dataService
+      .getLibraryById(libId)
+      .then((lib) => {
+        if (cancelled) return;
+        setTargetLibrary(lib);
+        if (!lib) {
+          setError('The library linked to this Master QR code could not be found.');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError('Unable to load library details. Check your connection and try again.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTargetLibrary(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [targetOwnerLibraryId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = code.trim().toUpperCase();
     if (!cleanCode) {
-      setError('Please enter your 4-digit Student Pin or login code.');
+      setError(
+        targetOwnerLibraryId
+          ? 'Please enter your Library Owner Access Code.'
+          : 'Please enter your 4-digit Student Pin or login code.'
+      );
       return;
     }
 
@@ -34,9 +78,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       const record = await dataService.verifyAccessCode(cleanCode);
       if (!record) {
         playSound('pop');
-        setError('Invalid or inactive Student Pin / login code. Please double-check or consult your library owner.');
+        setError(
+          targetOwnerLibraryId
+            ? 'Invalid or inactive Owner Access Code. Please verify your library code.'
+            : 'Invalid or inactive Student Pin / login code. Please double-check or consult your library owner.'
+        );
         setLoading(false);
         return;
+      }
+
+      if (targetOwnerLibraryId) {
+        if (record.role !== 'owner' || record.reference_id !== targetOwnerLibraryId) {
+          playSound('pop');
+          setError(
+            `This Master QR is dedicated to ${targetLibrary?.name || `Library ${targetOwnerLibraryId}`}. Please enter the matching Library Owner Code.`
+          );
+          setLoading(false);
+          return;
+        }
       }
 
       // 1. ADMIN LOGIN: Always allowed to log in successfully, regardless of library statuses
@@ -61,7 +120,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         }
 
         // Query the 'libraries' table in Supabase for this specific library
-        const library = await dataService.getLibraryById(record.reference_id);
+        const library = targetLibrary && targetLibrary.id === record.reference_id
+          ? targetLibrary
+          : await dataService.getLibraryById(record.reference_id);
 
         if (!library) {
           playSound('pop');
@@ -172,25 +233,57 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             Study<span className="text-[#58cc02]">Lingo</span>
           </h1>
           <p className="mt-2 text-sm font-semibold text-[#777777] max-w-xs mx-auto">
-            Enter your 4-digit Student Pin or Admin/Owner Code to open your portal.
+            {targetOwnerLibraryId
+              ? 'Owner Desk Access · Enter your Library Owner Code to open your branch dashboard.'
+              : 'Enter your 4-digit Student Pin or Admin/Owner Code to open your portal.'}
           </p>
         </div>
 
         {/* Main Clean & Secure Login Card */}
-        <div className="duo-card p-6 sm:p-8 bg-white">
+        <div className="duo-card p-6 sm:p-8 bg-white space-y-5">
+          {targetOwnerLibraryId && (
+            <div className="p-3.5 rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#58cc02] text-white flex items-center justify-center shrink-0 border-b-2 border-[#46a302]">
+                {loadingTargetLibrary ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Building2 className="w-5 h-5" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="block text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                  Owner Master QR Mapped
+                </span>
+                <p className="font-display text-sm font-black text-[#3c3c3c] truncate">
+                  {loadingTargetLibrary
+                    ? 'Loading library...'
+                    : targetLibrary?.name || 'Study Library'}
+                </p>
+                <p className="text-[11px] font-semibold text-slate-500 truncate">
+                  {targetLibrary?.location ? `${targetLibrary.location} · ` : ''}
+                  <span className="font-mono">{targetOwnerLibraryId}</span>
+                </p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label
                 htmlFor="accessCode"
                 className="block text-xs font-black uppercase tracking-wider text-[#777777] mb-2"
               >
-                Student Pin / Login Code
+                {targetOwnerLibraryId ? 'Owner Access Code' : 'Student Pin / Login Code'}
               </label>
               <div className="relative">
                 <input
                   id="accessCode"
                   type="text"
-                  placeholder="4-digit Student Pin (1000–9999) or Login Code"
+                  placeholder={
+                    targetOwnerLibraryId
+                      ? 'Enter your Owner Access Code'
+                      : '4-digit Student Pin (1000–9999) or Login Code'
+                  }
                   value={code}
                   onChange={(e) => {
                     setCode(e.target.value.toUpperCase());
@@ -219,9 +312,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               disabled={loading || !code.trim()}
               className="w-full py-3.5 px-6 rounded-2xl text-base font-black duo-btn-green flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
             >
-              <span>{loading ? 'Verifying...' : 'Continue'}</span>
+              <span>{loading ? 'Verifying...' : targetOwnerLibraryId ? 'Open Owner Dashboard' : 'Continue'}</span>
               <ArrowRight className="w-5 h-5 stroke-[3]" />
             </button>
+
+            {targetOwnerLibraryId && onClearTargetLibrary && (
+              <button
+                type="button"
+                onClick={onClearTargetLibrary}
+                className="w-full py-2 text-xs font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+              >
+                Switch to standard Student / Admin login
+              </button>
+            )}
           </form>
         </div>
 

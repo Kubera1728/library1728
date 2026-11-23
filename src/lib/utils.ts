@@ -113,24 +113,22 @@ export function formatFriendlyDate(dateStr: string): string {
   }
 }
 
-/**
- * Builds WhatsApp Click-to-Chat URL
- */
-export function generateWhatsAppReminderUrl(
-  phone: string,
+export function generateWhatsAppToPhoneUrl(phone: string, message: string): string {
+  let cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+  if (cleanPhone.length === 10) {
+    cleanPhone = '91' + cleanPhone;
+  }
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent((message || '').trim())}`;
+}
+
+export function buildStudentReminderMessage(
   studentName: string,
   libraryName: string,
   seatNumber: string,
   endDate: string,
-  daysLeft: number
+  daysLeft: number,
+  studentPin?: string
 ): string {
-  // Sanitize phone number (strip spaces, dashes, parentheses, plus)
-  let cleanPhone = phone.replace(/[^0-9]/g, '');
-  if (cleanPhone.length === 10) {
-    // Default country code if 10-digit, prefix with 91 for India or as needed
-    cleanPhone = '91' + cleanPhone;
-  }
-
   let urgencyText = '';
   if (daysLeft === 0) {
     urgencyText = 'today';
@@ -144,7 +142,274 @@ export function generateWhatsAppReminderUrl(
     urgencyText = `in ${daysLeft} days`;
   }
 
-  const message = `Hi ${studentName}! 📚\n\nGentle reminder from *${libraryName}*:\nYour study seat subscription (*Seat #${seatNumber}*) is expiring *${urgencyText}* (${formatFriendlyDate(endDate)}).\n\nPlease renew your seat reservation to ensure your spot is kept reserved.\n\nKeep up your focused study sessions! 🚀`;
+  const cleanPin = (studentPin || '').trim();
+  const pinLine =
+    cleanPin && cleanPin !== 'Not Issued'
+      ? `\n• *Student PIN:* \`${cleanPin}\``
+      : '';
+
+  return `Hi ${studentName}! 📚\n\nGentle reminder from *${libraryName}*:\nYour study seat subscription (*Seat #${seatNumber}*) is expiring *${urgencyText}* (${formatFriendlyDate(endDate)}).${pinLine}\n\nPlease renew your seat reservation to ensure your spot is kept reserved.\n\nKeep up your focused study sessions! 🚀`;
+}
+
+/**
+ * Builds WhatsApp Click-to-Chat URL
+ */
+export function generateWhatsAppReminderUrl(
+  phone: string,
+  studentName: string,
+  libraryName: string,
+  seatNumber: string,
+  endDate: string,
+  daysLeft: number,
+  studentPin?: string
+): string {
+  return generateWhatsAppToPhoneUrl(
+    phone,
+    buildStudentReminderMessage(studentName, libraryName, seatNumber, endDate, daysLeft, studentPin)
+  );
+}
+
+/**
+ * Builds WhatsApp Welcome & Login Credentials URL for newly assigned / active students
+ */
+export function generateWhatsAppWelcomeUrl(
+  phone: string,
+  studentName: string,
+  libraryName: string,
+  seatNumber: string,
+  shift: string,
+  accessCode: string,
+  loginUrl: string
+): string {
+  const message = `Welcome to *${libraryName}*, ${studentName}! 🦉📚\n\nYour study desk is confirmed:\n• *Seat:* #${seatNumber}\n• *Shift:* ${shift}\n• *Student PIN:* \`${accessCode}\`\n• *Login Portal:* ${loginUrl}\n\n*Daily Check-In / Check-Out Instructions:*\n1. Open the portal link and sign in using your 4-digit Student PIN.\n2. When you arrive at your desk, scan the desk QR code and enter your 4-digit Student PIN to Check In.\n3. Scan your desk QR code again when leaving to mark Check-Out.\n\nWishing you productive study sessions! 🚀`;
+
+  return generateWhatsAppToPhoneUrl(phone, message);
+}
+
+/**
+ * Builds a clean WhatsApp Click-to-Chat URL (https://wa.me/...) with NO pre-filled text
+ */
+export function generateWhatsAppBlankChatUrl(phone: string): string {
+  let cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+  if (cleanPhone.length === 10) {
+    cleanPhone = '91' + cleanPhone;
+  }
+  return `https://wa.me/${cleanPhone}`;
+}
+
+/**
+ * Builds a direct phone call link (tel:...) for instant dialing
+ */
+export function generatePhoneCallUrl(phone: string): string {
+  const trimmed = (phone || '').trim();
+  const digits = trimmed.replace(/[^0-9]/g, '');
+  if (!digits) return 'tel:';
+  if (digits.length === 10) {
+    return `tel:+91${digits}`;
+  }
+  return `tel:+${digits}`;
+}
+
+export function buildStudentThankYouMessage(studentName: string, libraryName: string): string {
+  return `Hello ${studentName}! 👋✨\n\nThank you so much for joining and studying with *${libraryName}*! 📚\n\nWe truly appreciate you utilizing our library services and being part of our study community. Wishing you the very best in your upcoming exams and future goals! 🎯🚀\n\nYou are always welcome back whenever you need a focused study desk. Warm regards! 🙏`;
+}
+
+/**
+ * Builds WhatsApp Thank-You / Appreciation URL for an exited student
+ */
+export function generateWhatsAppThankYouUrl(
+  phone: string,
+  studentName: string,
+  libraryName: string
+): string {
+  return generateWhatsAppToPhoneUrl(phone, buildStudentThankYouMessage(studentName, libraryName));
+}
+
+export function buildStudentJoiningMessage(
+  studentName: string,
+  libraryName: string,
+  seatNumber: string,
+  shift: string,
+  endDate: string,
+  accessCode?: string
+): string {
+  const cleanPin = (accessCode || '').trim();
+  const codeLine =
+    cleanPin && cleanPin !== 'Not Issued'
+      ? `\n• *Student PIN:* \`${cleanPin}\``
+      : '';
+  return `Welcome to *${libraryName}*, ${studentName}! 🎉📚\n\nWe are excited to have you join our study community. Here are your seat details:\n• *Seat:* #${seatNumber}\n• *Shift:* ${shift}\n• *Valid Until:* ${formatFriendlyDate(endDate)}${codeLine}\n\nUse your 4-digit Student PIN to log into your student portal & check in/out at your desk. Wishing you super focused and productive study sessions ahead! 🚀`;
+}
+
+/**
+ * Builds WhatsApp New Joining greeting URL from Master Admin for a newly joined student
+ */
+export function generateWhatsAppJoiningAlertUrl(
+  phone: string,
+  studentName: string,
+  libraryName: string,
+  seatNumber: string,
+  shift: string,
+  endDate: string,
+  accessCode?: string
+): string {
+  return generateWhatsAppToPhoneUrl(
+    phone,
+    buildStudentJoiningMessage(studentName, libraryName, seatNumber, shift, endDate, accessCode)
+  );
+}
+
+export function buildStudentRenewalMessage(
+  studentName: string,
+  libraryName: string,
+  seatNumber: string,
+  endDate: string,
+  shift?: string,
+  studentPin?: string
+): string {
+  const shiftLine = shift ? `\n• *Shift:* ${shift}` : '';
+  const cleanPin = (studentPin || '').trim();
+  const pinLine =
+    cleanPin && cleanPin !== 'Not Issued'
+      ? `\n• *Student PIN:* \`${cleanPin}\``
+      : '';
+  return `Hello ${studentName}! ✅🎉\n\nYour study seat subscription at *${libraryName}* (*Seat #${seatNumber}*) has been *successfully renewed*!${shiftLine}\n• *New Validity Until:* ${formatFriendlyDate(endDate)}${pinLine}\n\nThank you for continuing your preparation with us. Keep up the great momentum! 🚀`;
+}
+
+/**
+ * Builds WhatsApp Subscription Renewal confirmation URL for a student
+ */
+export function generateWhatsAppRenewalUrl(
+  phone: string,
+  studentName: string,
+  libraryName: string,
+  seatNumber: string,
+  endDate: string,
+  shift?: string,
+  studentPin?: string
+): string {
+  return generateWhatsAppToPhoneUrl(
+    phone,
+    buildStudentRenewalMessage(studentName, libraryName, seatNumber, endDate, shift, studentPin)
+  );
+}
+
+/**
+ * Builds WhatsApp License Expiry / Reminder URL for a Library Owner
+ */
+export function generateWhatsAppLibraryLicenseUrl(
+  phone: string,
+  ownerName: string,
+  libraryName: string,
+  expiryDate: string,
+  daysLeft: number,
+  isInactive: boolean
+): string {
+  let cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+  if (cleanPhone.length === 10) {
+    cleanPhone = '91' + cleanPhone;
+  }
+
+  let message = '';
+  if (isInactive) {
+    message = `Hello ${ownerName}! 👋\n\nNotice regarding *${libraryName}*:\nYour library management license is currently *paused/inactive* (Expiry: *${formatFriendlyDate(expiryDate)}*).\n\nPlease reach out or complete your license renewal so your library dashboard and student access remain active seamlessly. 🙏`;
+  } else if (daysLeft === 0) {
+    message = `Hello ${ownerName}! ⚠️\n\n*Expiry Day Alert for ${libraryName}:*\nYour library subscription license expires *today (${formatFriendlyDate(expiryDate)})*.\n\nPlease renew your license today to avoid any interruption to your owner portal and student check-in services. Thank you! 🙏`;
+  } else if (daysLeft === 2 || daysLeft === 1) {
+    const timing = daysLeft === 1 ? 'tomorrow (1 day left)' : 'in 2 days';
+    message = `Hello ${ownerName}! 🔔\n\nFriendly reminder for *${libraryName}*:\nYour library platform subscription is due to expire *${timing}* on *${formatFriendlyDate(expiryDate)}*.\n\nPlease renew ahead of schedule to ensure uninterrupted access for you and your students. 🚀`;
+  } else if (daysLeft < 0) {
+    message = `Hello ${ownerName}! ⚠️\n\nRenewal follow-up for *${libraryName}*:\nYour library subscription license expired ${Math.abs(daysLeft)} day(s) ago on *${formatFriendlyDate(expiryDate)}*.\n\nPlease complete your renewal at the earliest to keep your library account active. 🙏`;
+  } else {
+    message = `Hello ${ownerName}! 🔔\n\nUpcoming renewal reminder for *${libraryName}*:\nYour library subscription license expires in *${daysLeft} days* (*${formatFriendlyDate(expiryDate)}*).\n\nReach out anytime to extend your subscription! 🚀`;
+  }
 
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
+
+/**
+ * Builds a pre-filled WhatsApp share/intent URL with no fixed recipient
+ * so the Admin can select the library's WhatsApp broadcast list directly.
+ */
+export function generateWhatsAppBroadcastUrl(message: string): string {
+  return `https://wa.me/?text=${encodeURIComponent((message || '').trim())}`;
+}
+
+export function isStudentExited(student: { is_active?: boolean; notes?: string }): boolean {
+  if (student.is_active === false) return true;
+  return /\[EXITED(?::[^\]]*)?\]/i.test(student.notes || '');
+}
+
+export function getStudentExitDate(student: { notes?: string }): string | null {
+  const match = (student.notes || '').match(/\[EXITED:([^\]]+)\]/i);
+  return match ? match[1] : null;
+}
+
+export function getStudentJoinedDate(student: { notes?: string }): string | null {
+  const match = (student.notes || '').match(/\[JOINED:([^\]]+)\]/i);
+  return match ? match[1] : null;
+}
+
+export function getStudentRenewedDate(student: { notes?: string }): string | null {
+  const match = (student.notes || '').match(/\[RENEWED:([^\]]+)\]/i);
+  return match ? match[1] : null;
+}
+
+export function isStudentThanked(student: { notes?: string }): boolean {
+  return /\[THANKED\]/i.test(student.notes || '');
+}
+
+export function isExitAlertDismissed(student: { notes?: string }): boolean {
+  return /\[EXIT_ACK\]/i.test(student.notes || '');
+}
+
+export function isExitAlertSent(student: { notes?: string }): boolean {
+  return /\[(?:EXIT_SENT|THANKED)\]/i.test(student.notes || '');
+}
+
+export function isJoinAlertDismissed(student: { notes?: string }): boolean {
+  return /\[JOIN_ACK\]/i.test(student.notes || '');
+}
+
+export function isJoinAlertSent(student: { notes?: string }): boolean {
+  return /\[JOIN_SENT\]/i.test(student.notes || '');
+}
+
+export function isRenewAlertDismissed(student: { notes?: string }): boolean {
+  return /\[RENEW_ACK\]/i.test(student.notes || '');
+}
+
+export function isRenewAlertSent(student: { notes?: string }): boolean {
+  return /\[RENEW_SENT\]/i.test(student.notes || '');
+}
+
+export function isExpiringAlertDismissed(student: { notes?: string; subscription_end?: string }): boolean {
+  const match = (student.notes || '').match(/\[EXPIRING_ACK:([^\]]+)\]/i);
+  if (!match) return false;
+  return match[1] === (student.subscription_end || '');
+}
+
+export function isExpiringAlertSent(student: { notes?: string; subscription_end?: string }): boolean {
+  const match = (student.notes || '').match(/\[EXPIRING_SENT:([^\]]+)\]/i);
+  if (!match) return false;
+  return match[1] === (student.subscription_end || '');
+}
+
+export function stripSystemNoteTags(notes?: string): string {
+  return (notes || '')
+    .replace(/\s*\[EXITED(?::[^\]]*)?\]/gi, '')
+    .replace(/\s*\[THANKED\]/gi, '')
+    .replace(/\s*\[EXIT_ACK\]/gi, '')
+    .replace(/\s*\[EXIT_SENT\]/gi, '')
+    .replace(/\s*\[JOINED(?::[^\]]*)?\]/gi, '')
+    .replace(/\s*\[JOIN_ACK\]/gi, '')
+    .replace(/\s*\[JOIN_SENT\]/gi, '')
+    .replace(/\s*\[RENEWED(?::[^\]]*)?\]/gi, '')
+    .replace(/\s*\[RENEW_ACK\]/gi, '')
+    .replace(/\s*\[RENEW_SENT\]/gi, '')
+    .replace(/\s*\[EXPIRING_ACK(?::[^\]]*)?\]/gi, '')
+    .replace(/\s*\[EXPIRING_SENT(?::[^\]]*)?\]/gi, '')
+    .replace(/\s*·?\s*Fee:\s*₹\d+/gi, '')
+    .trim();
+}
+

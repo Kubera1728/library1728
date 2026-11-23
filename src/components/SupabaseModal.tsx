@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Check, Copy, AlertCircle, Database, Sparkles, Trash2, ArrowRight } from 'lucide-react';
 import {
   getStoredSupabaseConfig,
+  getSupabaseConfigSource,
   saveStoredSupabaseConfig,
   testSupabaseConnection,
   SQL_SETUP_SCRIPT,
@@ -132,6 +133,34 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
           </button>
         </div>
 
+        {/* Connection Source Indicator */}
+        {(() => {
+          const source = getSupabaseConfigSource();
+          if (source === 'env') {
+            return (
+              <div className="mt-4 p-3 rounded-2xl bg-[#58cc02]/10 border-2 border-[#58cc02]/30 text-xs font-bold text-[#2c6800] flex items-center gap-2">
+                <Check className="w-4 h-4 shrink-0 text-[#58cc02]" />
+                <span>
+                  Connected via Environment Variables — synced across Preview &amp; Deployed Live URLs.
+                </span>
+              </div>
+            );
+          }
+          if (source === 'local') {
+            return (
+              <div className="mt-4 p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 text-xs font-semibold text-amber-900 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
+                <span>
+                  Saved in this browser only. To sync across Preview &amp; Deployed URLs automatically, set{' '}
+                  <code className="font-mono font-bold">VITE_SUPABASE_URL</code> and{' '}
+                  <code className="font-mono font-bold">VITE_SUPABASE_ANON_KEY</code> in your deployment environment variables.
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         {/* Status Alert if any */}
         {statusMessage && (
           <div className="mt-4 p-3 rounded-2xl bg-[#58cc02]/10 border-2 border-[#58cc02]/30 text-xs font-bold text-[#46a302] flex items-center gap-2">
@@ -210,7 +239,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
               <div className="space-y-2">
                 <p className="font-bold">{testResult.message}</p>
                 {testResult.tableStatus && (
-                  <div className="flex items-center gap-3 font-mono text-[11px] pt-1">
+                  <div className="flex flex-wrap items-center gap-3 font-mono text-[11px] pt-1">
                     <span>
                       all_logins:{' '}
                       <strong className={testResult.tableStatus.all_logins ? 'text-[#46a302]' : 'text-red-600'}>
@@ -227,6 +256,18 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                       students:{' '}
                       <strong className={testResult.tableStatus.students ? 'text-[#46a302]' : 'text-red-600'}>
                         {testResult.tableStatus.students ? '✓ Found' : '✗ Missing'}
+                      </strong>
+                    </span>
+                    <span>
+                      shifts:{' '}
+                      <strong className={testResult.tableStatus.shifts ? 'text-[#46a302]' : 'text-red-600'}>
+                        {testResult.tableStatus.shifts ? '✓ Ready' : '✗ Blocked / Missing'}
+                      </strong>
+                    </span>
+                    <span>
+                      attendance_logs:{' '}
+                      <strong className={testResult.tableStatus.attendance_logs ? 'text-[#46a302]' : 'text-red-600'}>
+                        {testResult.tableStatus.attendance_logs ? '✓ Found' : '✗ Missing'}
                       </strong>
                     </span>
                   </div>

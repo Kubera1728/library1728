@@ -10,9 +10,27 @@ import { LoginScreen } from './components/LoginScreen';
 import { AdminDashboard } from './components/AdminDashboard';
 import { OwnerDashboard } from './components/OwnerDashboard';
 import { StudentDashboard } from './components/StudentDashboard';
+import { PublicQrScanPage } from './components/PublicQrScanPage';
 import { SupabaseModal } from './components/SupabaseModal';
-import { dataService, isSupabaseConfigured } from './lib/supabase';
+import { hydrateSupabaseConfigFromServer, isSupabaseConfigured } from './lib/supabase';
 import { playSound } from './lib/utils';
+
+interface ScanRouteParams {
+  seat: string;
+  lib: string;
+}
+
+function parseScanRouteFromLocation(): ScanRouteParams | null {
+  if (typeof window === 'undefined') return null;
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/';
+  const params = new URLSearchParams(window.location.search);
+  const isScanPath = pathname === '/scan' || params.get('scan') === '1';
+  if (!isScanPath) return null;
+  return {
+    seat: (params.get('seat') || params.get('s') || '').trim(),
+    lib: (params.get('lib') || params.get('libraryId') || '').trim(),
+  };
+}
 
 export default function App() {
   const [session, setSession] = useState<AuthSession | null>(() => {
@@ -24,8 +42,31 @@ export default function App() {
     }
   });
 
+  const [scanRoute, setScanRoute] = useState<ScanRouteParams | null>(() =>
+    parseScanRouteFromLocation()
+  );
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [dataVersion, setDataVersion] = useState(0);
+
+  // Hydrate runtime Supabase env vars from server if not already present on window/Vite env
+  useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      void hydrateSupabaseConfigFromServer().then((hydrated) => {
+        if (hydrated) {
+          setDataVersion((v) => v + 1);
+        }
+      });
+    }
+  }, []);
+
+  // Listen to browser navigation (back/forward) for /scan route
+  useEffect(() => {
+    const handlePopState = () => {
+      setScanRoute(parseScanRouteFromLocation());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Sync session with storage
   useEffect(() => {
@@ -36,54 +77,85 @@ export default function App() {
     }
   }, [session]);
 
+  const navigateToHome = () => {
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/');
+    }
+    setScanRoute(null);
+  };
+
   const handleLoginSuccess = (newSession: AuthSession) => {
     setSession(newSession);
+    navigateToHome();
   };
 
   const handleLogout = () => {
     playSound('pop');
     setSession(null);
+    navigateToHome();
   };
 
   const handleDataChanged = () => {
     setDataVersion((v) => v + 1);
   };
 
+  const isDashboardMode = Boolean(session && !scanRoute);
+
   return (
-    <div className="min-h-screen bg-[#f7f9fa] flex flex-col text-[#3c3c3c]">
+    <div
+      className={`${
+        isDashboardMode ? 'h-[100dvh] max-h-[100dvh] overflow-hidden' : 'min-h-screen'
+      } w-full bg-[#f7f9fa] flex flex-col text-[#3c3c3c] overflow-x-hidden`}
+    >
       {/* Top Navbar */}
       <Navbar
-        session={session}
+        session={scanRoute ? null : session}
         onLogout={handleLogout}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+        onSelectTab={(tab) => {
+          if (tab === 'home' && scanRoute) {
+            navigateToHome();
+          }
+        }}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1">
-        {!session ? (
+      <main className={`flex-1 ${isDashboardMode ? 'min-h-0 overflow-hidden flex flex-col' : ''}`}>
+        {scanRoute ? (
+          <PublicQrScanPage
+            seatParam={scanRoute.seat}
+            libraryIdParam={scanRoute.lib}
+            onNavigateHome={navigateToHome}
+            onOpenStudentSession={handleLoginSuccess}
+          />
+        ) : !session ? (
           <LoginScreen
             onLoginSuccess={handleLoginSuccess}
-            onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
-            dataVersion={dataVersion}
           />
         ) : session.role === 'admin' ? (
           <AdminDashboard
+            key={`admin_${dataVersion}`}
             adminCode={session.code}
             onRefresh={handleDataChanged}
+            onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+            onLogout={handleLogout}
           />
         ) : session.role === 'owner' ? (
           <OwnerDashboard
+            key={`owner_${session.reference_id || session.library?.id || ''}_${dataVersion}`}
             ownerCode={session.code}
-            libraryId={session.reference_id || ''}
+            libraryId={session.reference_id || session.library?.id || ''}
+            onLogout={handleLogout}
           />
         ) : session.role === 'student' && session.student ? (
           <StudentDashboard
             studentCode={session.code}
             student={session.student}
             library={session.library}
+            onLogout={handleLogout}
           />
         ) : (
-          <div className="max-w-md mx-auto my-12 p-8 bg-white duo-card text-center space-y-4">
+          <div className="max-w-md mx-auto my-auto p-6 bg-white duo-card text-center space-y-4">
             <h2 className="text-xl font-black text-[#3c3c3c]">Profile Data Not Linked</h2>
             <p className="text-xs text-slate-500">
               The code <span className="font-mono font-bold text-slate-700">{session.code}</span> was recognized as a {session.role}, but its reference data was removed.

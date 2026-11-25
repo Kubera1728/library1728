@@ -154,20 +154,24 @@ export default function App() {
   return (
     <div
       className={`${
-        isDashboardMode ? 'h-[100dvh] max-h-[100dvh] overflow-hidden' : 'min-h-screen'
-      } w-full bg-[#f7f9fa] flex flex-col text-[#3c3c3c] overflow-x-hidden`}
+        isDashboardMode
+          ? 'h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#f7f9fa]'
+          : 'min-h-screen bg-white'
+      } w-full flex flex-col text-[#3c3c3c] overflow-x-hidden`}
     >
-      {/* Top Navbar */}
-      <Navbar
-        session={scanRoute || needsOwnerQrLogin ? null : session}
-        onLogout={handleLogout}
-        onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
-        onSelectTab={(tab) => {
-          if (tab === 'home' && (scanRoute || needsOwnerQrLogin)) {
-            navigateToHome();
-          }
-        }}
-      />
+      {/* Top Navbar (only shown inside authenticated dashboards) */}
+      {isDashboardMode && (
+        <Navbar
+          session={session}
+          onLogout={handleLogout}
+          onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+          onSelectTab={(tab) => {
+            if (tab === 'home' && (scanRoute || needsOwnerQrLogin)) {
+              navigateToHome();
+            }
+          }}
+        />
+      )}
 
       {/* Main Content Area */}
       <main className={`flex-1 ${isDashboardMode ? 'min-h-0 overflow-hidden flex flex-col' : ''}`}>

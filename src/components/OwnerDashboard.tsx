@@ -82,7 +82,7 @@ import {
   playSound,
   fireDuolingoConfetti,
 } from '../lib/utils';
-import { MascotOwl } from './MascotOwl';
+import { EkaSigmaIcon } from './EkaLogoMark';
 
 export type OwnerNavSection =
   | 'overview'
@@ -2440,7 +2440,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                     </>
                   ) : (
                     <>
-                      <MascotOwl mood="studying" size={68} className="mb-2" />
+                      <div className="w-16 h-16 rounded-2xl bg-[#FAFAFA] border-2 border-[#e5e5e5] flex items-center justify-center mx-auto mb-2.5">
+                        <EkaSigmaIcon className="w-9 h-9" />
+                      </div>
                       <h3 className="font-display text-base font-black text-[#3c3c3c]">
                         {activeStudents.length === 0 ? 'No Students Enrolled' : 'No Matching Students'}
                       </h3>
@@ -3110,7 +3112,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                           </div>
                           <div className="w-full flex flex-col items-center leading-tight">
                             <span className="text-[10px] font-extrabold text-slate-700 truncate max-w-full">
-                              {library?.name || 'StudyLingo Library'}
+                              {library?.name || 'Ekā Library'}
                             </span>
                             <span className="text-[9px] font-bold text-[#1899d6]">
                               Scan to Check-In / Out
@@ -4018,7 +4020,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                   Seat {previewSeatQr.seatLabel} QR · #{formatSeatBadgeNumber(previewSeatQr.seatLabel)}
                 </h3>
                 <p className="text-xs font-semibold text-slate-500">
-                  {library?.name || 'StudyLingo Library'} · Scan to Check-In / Out
+                  {library?.name || 'Ekā Library'} · Scan to Check-In / Out
                 </p>
               </div>
               <button
@@ -4076,7 +4078,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       {/* LIBRARY OWNER MASTER QR MODAL */}
       {showOwnerMasterQrModal && (() => {
         const ownerPayloadUrl = encodeOwnerMasterQrPayload(libraryId);
-        const libName = library?.name || 'StudyLingo Library';
+        const libName = library?.name || 'Ekā Library';
         const safeSlug = libName.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'Library';
 
         const handleCopyOwnerLink = async () => {
@@ -5202,7 +5204,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             {/* Slider Content Area */}
             {shifts.length === 0 ? (
               <div className="py-8 px-4 text-center my-auto">
-                <MascotOwl mood="studying" size={76} className="mx-auto mb-3" />
+                <div className="w-[72px] h-[72px] rounded-2xl bg-[#FAFAFA] border-2 border-[#e5e5e5] flex items-center justify-center mx-auto mb-3">
+                  <EkaSigmaIcon className="w-10 h-10" />
+                </div>
                 <h4 className="font-display text-lg font-black text-[#3c3c3c]">
                   No Custom Shifts Yet
                 </h4>

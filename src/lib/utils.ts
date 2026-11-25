@@ -14,7 +14,7 @@ export function fireDuolingoConfetti() {
       particleCount: 80,
       spread: 70,
       origin: { y: 0.6 },
-      colors: ['#58cc02', '#1cb0f6', '#ff9600', '#ffc800', '#ce82ff'],
+      colors: ['#E53935', '#0f0f0f', '#1cb0f6', '#ff9600', '#ffc800'],
     });
   } catch (e) {
     // ignore
@@ -148,7 +148,7 @@ export function buildStudentReminderMessage(
       ? `\n• *Student PIN:* \`${cleanPin}\``
       : '';
 
-  return `Hi ${studentName}! 📚\n\nGentle reminder from *${libraryName}*:\nYour study seat subscription (*Seat #${seatNumber}*) is expiring *${urgencyText}* (${formatFriendlyDate(endDate)}).${pinLine}\n\nPlease renew your seat reservation to ensure your spot is kept reserved.\n\nKeep up your focused study sessions! 🚀`;
+  return `Hi ${studentName}! 📚\n\nGentle reminder from *${libraryName}* (Ekā):\nYour study seat subscription (*Seat #${seatNumber}*) is expiring *${urgencyText}* (${formatFriendlyDate(endDate)}).${pinLine}\n\nPlease renew your seat reservation to ensure your spot is kept reserved.\n\nKeep up your focused study sessions! 🚀`;
 }
 
 /**
@@ -181,7 +181,7 @@ export function generateWhatsAppWelcomeUrl(
   accessCode: string,
   loginUrl: string
 ): string {
-  const message = `Welcome to *${libraryName}*, ${studentName}! 🦉📚\n\nYour study desk is confirmed:\n• *Seat:* #${seatNumber}\n• *Shift:* ${shift}\n• *Student PIN:* \`${accessCode}\`\n• *Login Portal:* ${loginUrl}\n\n*Daily Check-In / Check-Out Instructions:*\n1. Open the portal link and sign in using your 4-digit Student PIN.\n2. When you arrive at your desk, scan the desk QR code and enter your 4-digit Student PIN to Check In.\n3. Scan your desk QR code again when leaving to mark Check-Out.\n\nWishing you productive study sessions! 🚀`;
+  const message = `Welcome to *${libraryName}* on *Ekā*, ${studentName}! 📚\n\nYour study desk is confirmed:\n• *Seat:* #${seatNumber}\n• *Shift:* ${shift}\n• *Student PIN:* \`${accessCode}\`\n• *Ekā Login Portal:* ${loginUrl}\n\n*Daily Check-In / Check-Out Instructions:*\n1. Open the portal link and sign in using your 4-digit Student PIN.\n2. When you arrive at your desk, scan the desk QR code and enter your 4-digit Student PIN to Check In.\n3. Scan your desk QR code again when leaving to mark Check-Out.\n\nWishing you productive study sessions! 🚀`;
 
   return generateWhatsAppToPhoneUrl(phone, message);
 }
@@ -211,7 +211,7 @@ export function generatePhoneCallUrl(phone: string): string {
 }
 
 export function buildStudentThankYouMessage(studentName: string, libraryName: string): string {
-  return `Hello ${studentName}! 👋✨\n\nThank you so much for joining and studying with *${libraryName}*! 📚\n\nWe truly appreciate you utilizing our library services and being part of our study community. Wishing you the very best in your upcoming exams and future goals! 🎯🚀\n\nYou are always welcome back whenever you need a focused study desk. Warm regards! 🙏`;
+  return `Hello ${studentName}! 👋✨\n\nThank you so much for joining and studying with *${libraryName}* on *Ekā*! 📚\n\nWe truly appreciate you utilizing our library services and being part of our study community. Wishing you the very best in your upcoming exams and future goals! 🎯🚀\n\nYou are always welcome back whenever you need a focused study desk. Warm regards! 🙏`;
 }
 
 /**
@@ -238,7 +238,7 @@ export function buildStudentJoiningMessage(
     cleanPin && cleanPin !== 'Not Issued'
       ? `\n• *Student PIN:* \`${cleanPin}\``
       : '';
-  return `Welcome to *${libraryName}*, ${studentName}! 🎉📚\n\nWe are excited to have you join our study community. Here are your seat details:\n• *Seat:* #${seatNumber}\n• *Shift:* ${shift}\n• *Valid Until:* ${formatFriendlyDate(endDate)}${codeLine}\n\nUse your 4-digit Student PIN to log into your student portal & check in/out at your desk. Wishing you super focused and productive study sessions ahead! 🚀`;
+  return `Welcome to *${libraryName}* on *Ekā*, ${studentName}! 🎉📚\n\nWe are excited to have you join our study community. Here are your seat details:\n• *Seat:* #${seatNumber}\n• *Shift:* ${shift}\n• *Valid Until:* ${formatFriendlyDate(endDate)}${codeLine}\n\nUse your 4-digit Student PIN to log into your Ekā student portal & check in/out at your desk. Wishing you super focused and productive study sessions ahead! 🚀`;
 }
 
 /**
@@ -273,7 +273,7 @@ export function buildStudentRenewalMessage(
     cleanPin && cleanPin !== 'Not Issued'
       ? `\n• *Student PIN:* \`${cleanPin}\``
       : '';
-  return `Hello ${studentName}! ✅🎉\n\nYour study seat subscription at *${libraryName}* (*Seat #${seatNumber}*) has been *successfully renewed*!${shiftLine}\n• *New Validity Until:* ${formatFriendlyDate(endDate)}${pinLine}\n\nThank you for continuing your preparation with us. Keep up the great momentum! 🚀`;
+  return `Hello ${studentName}! ✅🎉\n\nYour study seat subscription at *${libraryName}* (*Seat #${seatNumber}*) has been *successfully renewed*!${shiftLine}\n• *New Validity Until:* ${formatFriendlyDate(endDate)}${pinLine}\n\nThank you for continuing your preparation with *${libraryName}* on *Ekā*. Keep up the great momentum! 🚀`;
 }
 
 /**
@@ -312,16 +312,16 @@ export function generateWhatsAppLibraryLicenseUrl(
 
   let message = '';
   if (isInactive) {
-    message = `Hello ${ownerName}! 👋\n\nNotice regarding *${libraryName}*:\nYour library management license is currently *paused/inactive* (Expiry: *${formatFriendlyDate(expiryDate)}*).\n\nPlease reach out or complete your license renewal so your library dashboard and student access remain active seamlessly. 🙏`;
+    message = `Hello ${ownerName}! 👋\n\nNotice regarding *${libraryName}*:\nYour *Ekā* library management license is currently *paused/inactive* (Expiry: *${formatFriendlyDate(expiryDate)}*).\n\nPlease reach out or complete your license renewal so your library dashboard and student access remain active seamlessly. 🙏`;
   } else if (daysLeft === 0) {
-    message = `Hello ${ownerName}! ⚠️\n\n*Expiry Day Alert for ${libraryName}:*\nYour library subscription license expires *today (${formatFriendlyDate(expiryDate)})*.\n\nPlease renew your license today to avoid any interruption to your owner portal and student check-in services. Thank you! 🙏`;
+    message = `Hello ${ownerName}! ⚠️\n\n*Expiry Day Alert for ${libraryName}:*\nYour *Ekā* library subscription license expires *today (${formatFriendlyDate(expiryDate)})*.\n\nPlease renew your license today to avoid any interruption to your owner portal and student check-in services. Thank you! 🙏`;
   } else if (daysLeft === 2 || daysLeft === 1) {
     const timing = daysLeft === 1 ? 'tomorrow (1 day left)' : 'in 2 days';
-    message = `Hello ${ownerName}! 🔔\n\nFriendly reminder for *${libraryName}*:\nYour library platform subscription is due to expire *${timing}* on *${formatFriendlyDate(expiryDate)}*.\n\nPlease renew ahead of schedule to ensure uninterrupted access for you and your students. 🚀`;
+    message = `Hello ${ownerName}! 🔔\n\nFriendly reminder for *${libraryName}*:\nYour *Ekā* library platform subscription is due to expire *${timing}* on *${formatFriendlyDate(expiryDate)}*.\n\nPlease renew ahead of schedule to ensure uninterrupted access for you and your students. 🚀`;
   } else if (daysLeft < 0) {
-    message = `Hello ${ownerName}! ⚠️\n\nRenewal follow-up for *${libraryName}*:\nYour library subscription license expired ${Math.abs(daysLeft)} day(s) ago on *${formatFriendlyDate(expiryDate)}*.\n\nPlease complete your renewal at the earliest to keep your library account active. 🙏`;
+    message = `Hello ${ownerName}! ⚠️\n\nRenewal follow-up for *${libraryName}*:\nYour *Ekā* library subscription license expired ${Math.abs(daysLeft)} day(s) ago on *${formatFriendlyDate(expiryDate)}*.\n\nPlease complete your renewal at the earliest to keep your library account active. 🙏`;
   } else {
-    message = `Hello ${ownerName}! 🔔\n\nUpcoming renewal reminder for *${libraryName}*:\nYour library subscription license expires in *${daysLeft} days* (*${formatFriendlyDate(expiryDate)}*).\n\nReach out anytime to extend your subscription! 🚀`;
+    message = `Hello ${ownerName}! 🔔\n\nUpcoming renewal reminder for *${libraryName}*:\nYour *Ekā* library subscription license expires in *${daysLeft} days* (*${formatFriendlyDate(expiryDate)}*).\n\nReach out anytime to extend your subscription! 🚀`;
   }
 
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;

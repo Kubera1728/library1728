@@ -173,7 +173,7 @@ export async function buildMasterQrPdfDocument({
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.text(
-      `StudyLingo QR Attendance System · Level-H Center Badge · Page ${pageIdx + 1} of ${totalPages}`,
+      `Ekā QR Attendance System · Level-H Center Badge · Page ${pageIdx + 1} of ${totalPages}`,
       pageWidth / 2,
       pageHeight - 4.5,
       { align: 'center' }

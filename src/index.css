@@ -16,13 +16,13 @@
 
 /* Duolingo-inspired 3D tactile buttons */
 .duo-btn-green {
-  background-color: #58cc02;
+  background-color: #E53935;
   color: white;
-  border-bottom: 4px solid #46a302;
+  border-bottom: 4px solid #B71C1C;
   transition: all 0.1s ease-in-out;
 }
 .duo-btn-green:hover {
-  background-color: #61e002;
+  background-color: #D32F2F;
 }
 .duo-btn-green:active {
   border-bottom-width: 0px;
@@ -115,15 +115,15 @@
 }
 
 .duo-btn-dark-green {
-  background-color: #166534;
+  background-color: #C62828;
   color: #ffffff;
-  border: 1px solid #14532d;
-  border-bottom: 4px solid #0f3f22;
-  box-shadow: 0 2px 6px rgba(22, 101, 52, 0.22);
+  border: 1px solid #B71C1C;
+  border-bottom: 4px solid #8E1B1B;
+  box-shadow: 0 2px 6px rgba(229, 57, 53, 0.22);
   transition: all 0.12s ease-in-out;
 }
 .duo-btn-dark-green:hover:not(:disabled) {
-  background-color: #15803d;
+  background-color: #B71C1C;
 }
 .duo-btn-dark-green:active:not(:disabled) {
   border-bottom-width: 1px;

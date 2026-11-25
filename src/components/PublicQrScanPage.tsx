@@ -38,7 +38,7 @@ import {
   isStudentExited,
   playSound,
 } from '../lib/utils';
-import { MascotOwl } from './MascotOwl';
+import { EkaSigmaIcon } from './EkaLogoMark';
 
 interface PublicQrScanPageProps {
   seatParam: string;
@@ -480,7 +480,7 @@ export const PublicQrScanPage: React.FC<PublicQrScanPageProps> = ({
                 Incomplete Desk QR Link
               </h2>
               <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-                This URL does not contain a valid seat number and library ID. Please scan an official StudyLingo QR sticker on your study desk.
+                This URL does not contain a valid seat number and library ID. Please scan an official Ekā QR sticker on your study desk.
               </p>
             </div>
             <button
@@ -488,7 +488,7 @@ export const PublicQrScanPage: React.FC<PublicQrScanPageProps> = ({
               onClick={onNavigateHome}
               className="w-full py-3 px-5 rounded-2xl text-xs font-black duo-btn-blue uppercase tracking-wide cursor-pointer"
             >
-              Go to StudyLingo Login
+              Go to Ekā Login
             </button>
           </div>
         ) : !loadingLibrary && !library ? (
@@ -509,15 +509,15 @@ export const PublicQrScanPage: React.FC<PublicQrScanPageProps> = ({
               onClick={onNavigateHome}
               className="w-full py-3 px-5 rounded-2xl text-xs font-black duo-btn-blue uppercase tracking-wide cursor-pointer"
             >
-              Go to StudyLingo Login
+              Go to Ekā Login
             </button>
           </div>
         ) : successResult ? (
           /* SUCCESS CONFIRMATION SCREEN */
           <div className="bg-white p-6 duo-card space-y-5 animate-in fade-in zoom-in-95 duration-150">
             <div className="text-center space-y-2">
-              <div className="inline-block">
-                <MascotOwl mood="celebrating" size={88} />
+              <div className="w-20 h-20 rounded-2xl bg-[#FAFAFA] border-2 border-[#e5e5e5] flex items-center justify-center mx-auto mb-1">
+                <EkaSigmaIcon className="w-11 h-11" />
               </div>
               <div
                 className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider ${
@@ -640,8 +640,8 @@ export const PublicQrScanPage: React.FC<PublicQrScanPageProps> = ({
           /* UPI-STYLE 4-DIGIT STUDENT PIN VERIFICATION PORTAL */
           <div className="bg-white p-6 sm:p-7 duo-card space-y-5">
             <div className="text-center space-y-1.5">
-              <div className="inline-block mb-1">
-                <MascotOwl mood="studying" size={84} />
+              <div className="w-20 h-20 rounded-2xl bg-[#FAFAFA] border-2 border-[#e5e5e5] flex items-center justify-center mx-auto mb-2">
+                <EkaSigmaIcon className="w-11 h-11" />
               </div>
               <h2 className="font-display text-xl sm:text-2xl font-black text-[#3c3c3c]">
                 Verify Seat #{normalizedSeat}

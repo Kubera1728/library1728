@@ -125,7 +125,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b-2 border-[#f0f0f0]">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-[#58cc02] text-white flex items-center justify-center border-b-3 border-[#46a302] font-black text-xl shadow-xs">
+            <div className="w-11 h-11 rounded-2xl bg-[#E53935] text-white flex items-center justify-center border-b-3 border-[#B71C1C] font-black text-xl shadow-xs">
               <Database className="w-6 h-6" />
             </div>
             <div>
@@ -148,8 +148,8 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
           const source = getSupabaseConfigSource();
           if (source === 'env') {
             return (
-              <div className="mt-4 p-3 rounded-2xl bg-[#58cc02]/10 border-2 border-[#58cc02]/30 text-xs font-bold text-[#2c6800] flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0 text-[#58cc02]" />
+              <div className="mt-4 p-3 rounded-2xl bg-red-50 border-2 border-red-200 text-xs font-bold text-[#B71C1C] flex items-center gap-2">
+                <Check className="w-4 h-4 shrink-0 text-[#E53935]" />
                 <span>
                   Connected via Environment Variables — synced across Preview &amp; Deployed Live URLs.
                 </span>
@@ -173,8 +173,8 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
 
         {/* Status Alert if any */}
         {statusMessage && (
-          <div className="mt-4 p-3 rounded-2xl bg-[#58cc02]/10 border-2 border-[#58cc02]/30 text-xs font-bold text-[#46a302] flex items-center gap-2">
-            <Check className="w-4 h-4 shrink-0" />
+          <div className="mt-4 p-3 rounded-2xl bg-red-50 border-2 border-red-200 text-xs font-bold text-[#C62828] flex items-center gap-2">
+            <Check className="w-4 h-4 shrink-0 text-[#E53935]" />
             <span>{statusMessage}</span>
           </div>
         )}
@@ -236,13 +236,13 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
           <div
             className={`mt-4 p-4 rounded-2xl border-2 text-xs font-semibold ${
               testResult.success
-                ? 'bg-[#58cc02]/10 border-[#58cc02] text-[#2c6800]'
+                ? 'bg-red-50/70 border-[#E53935] text-[#0f0f0f]'
                 : 'bg-[#ff4b4b]/10 border-[#ff4b4b] text-[#b91c1c]'
             }`}
           >
             <div className="flex items-start gap-2.5">
               {testResult.success ? (
-                <Check className="w-5 h-5 text-[#58cc02] shrink-0 mt-0.5" />
+                <Check className="w-5 h-5 text-[#E53935] shrink-0 mt-0.5" />
               ) : (
                 <AlertCircle className="w-5 h-5 text-[#ff4b4b] shrink-0 mt-0.5" />
               )}
@@ -252,31 +252,31 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
                   <div className="flex flex-wrap items-center gap-3 font-mono text-[11px] pt-1">
                     <span>
                       all_logins:{' '}
-                      <strong className={testResult.tableStatus.all_logins ? 'text-[#46a302]' : 'text-red-600'}>
+                      <strong className={testResult.tableStatus.all_logins ? 'text-[#C62828]' : 'text-red-600'}>
                         {testResult.tableStatus.all_logins ? '✓ Found' : '✗ Missing'}
                       </strong>
                     </span>
                     <span>
                       libraries:{' '}
-                      <strong className={testResult.tableStatus.libraries ? 'text-[#46a302]' : 'text-red-600'}>
+                      <strong className={testResult.tableStatus.libraries ? 'text-[#C62828]' : 'text-red-600'}>
                         {testResult.tableStatus.libraries ? '✓ Found' : '✗ Missing'}
                       </strong>
                     </span>
                     <span>
                       students:{' '}
-                      <strong className={testResult.tableStatus.students ? 'text-[#46a302]' : 'text-red-600'}>
+                      <strong className={testResult.tableStatus.students ? 'text-[#C62828]' : 'text-red-600'}>
                         {testResult.tableStatus.students ? '✓ Found' : '✗ Missing'}
                       </strong>
                     </span>
                     <span>
                       shifts:{' '}
-                      <strong className={testResult.tableStatus.shifts ? 'text-[#46a302]' : 'text-red-600'}>
+                      <strong className={testResult.tableStatus.shifts ? 'text-[#C62828]' : 'text-red-600'}>
                         {testResult.tableStatus.shifts ? '✓ Ready' : '✗ Blocked / Missing'}
                       </strong>
                     </span>
                     <span>
                       attendance_logs:{' '}
-                      <strong className={testResult.tableStatus.attendance_logs ? 'text-[#46a302]' : 'text-red-600'}>
+                      <strong className={testResult.tableStatus.attendance_logs ? 'text-[#C62828]' : 'text-red-600'}>
                         {testResult.tableStatus.attendance_logs ? '✓ Found' : '✗ Missing'}
                       </strong>
                     </span>
@@ -302,8 +302,8 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
             >
               {copiedSql ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-[#58cc02]" />
-                  <span className="text-[#46a302]">Copied!</span>
+                  <Check className="w-3.5 h-3.5 text-[#E53935]" />
+                  <span className="text-[#C62828]">Copied!</span>
                 </>
               ) : (
                 <>
@@ -314,7 +314,7 @@ export const SupabaseModal: React.FC<SupabaseModalProps> = ({
             </button>
           </div>
 
-          <div className="p-3 bg-slate-900 rounded-2xl text-[11px] font-mono text-emerald-400 overflow-x-auto max-h-32 border-2 border-slate-800">
+          <div className="p-3 bg-slate-900 rounded-2xl text-[11px] font-mono text-slate-200 overflow-x-auto max-h-32 border-2 border-slate-800">
             <pre>{SQL_SETUP_SCRIPT.slice(0, 320)}... (click 'Copy SQL' for full script)</pre>
           </div>
         </div>

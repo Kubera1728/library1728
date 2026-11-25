@@ -76,8 +76,9 @@ export function parseSeatQrPayload(raw: string): ParsedSeatQr {
     }
   }
 
-  // Legacy canonical format: STUDYLINGO|SEAT|<libraryId>|<seatLabel>
-  if (trimmed.toUpperCase().startsWith('STUDYLINGO|SEAT|')) {
+  // Legacy & Ekā canonical format: STUDYLINGO|SEAT|<libraryId>|<seatLabel> or EKA|SEAT|<libraryId>|<seatLabel>
+  const upperRaw = trimmed.toUpperCase();
+  if (upperRaw.startsWith('STUDYLINGO|SEAT|') || upperRaw.startsWith('EKA|SEAT|')) {
     const parts = trimmed.split('|');
     if (parts.length >= 4 && parts[2] && parts[3]) {
       return {
@@ -106,7 +107,7 @@ export function parseSeatQrPayload(raw: string): ParsedSeatQr {
 
   return {
     valid: false,
-    error: 'Unrecognized QR code. Please scan an official StudyLingo Desk QR sticker.',
+    error: 'Unrecognized QR code. Please scan an official Ekā Desk QR sticker.',
   };
 }
 
@@ -540,15 +541,15 @@ export async function downloadOwnerMasterQrPdf(library: Library): Promise<void> 
   const libLocation = (library.location || 'Library Desk').trim();
 
   // Top Banner
-  doc.setFillColor(15, 23, 42);
+  doc.setFillColor(15, 15, 15);
   doc.rect(0, 0, pageWidth, 34, 'F');
-  doc.setFillColor(88, 204, 2);
+  doc.setFillColor(229, 57, 53);
   doc.rect(0, 34, pageWidth, 3, 'F');
 
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(19);
-  doc.text('OWNER MASTER QR · DESK ACCESS', pageWidth / 2, 16, { align: 'center' });
+  doc.setFontSize(18);
+  doc.text('EKĀ OWNER MASTER QR · DESK ACCESS', pageWidth / 2, 16, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10.5);
   doc.text(`${libName} (${libLocation})`, pageWidth / 2, 25, { align: 'center' });
@@ -565,9 +566,9 @@ export async function downloadOwnerMasterQrPdf(library: Library): Promise<void> 
   doc.roundedRect(cardX, cardY, cardW, cardH, 6, 6, 'FD');
 
   // Card Pill Header
-  doc.setFillColor(240, 253, 244);
+  doc.setFillColor(254, 242, 242);
   doc.roundedRect(cardX + 14, cardY + 12, cardW - 28, 12, 3, 3, 'F');
-  doc.setTextColor(22, 101, 52);
+  doc.setTextColor(183, 28, 28);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text(`LIBRARY ID: ${library.id}`, pageWidth / 2, cardY + 19.5, { align: 'center' });
@@ -608,7 +609,7 @@ export async function downloadOwnerMasterQrPdf(library: Library): Promise<void> 
     { align: 'center' }
   );
   doc.text(
-    'Library Owner Portal directly mapped to this branch.',
+    'Ekā Library Owner Portal directly mapped to this branch.',
     pageWidth / 2,
     cardY + cardH - 15.5,
     { align: 'center' }
@@ -619,7 +620,7 @@ export async function downloadOwnerMasterQrPdf(library: Library): Promise<void> 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.text(
-    `Generated ${new Date().toLocaleDateString('en-IN')} · Level-H Error Correction · ${origin}`,
+    `Ekā Owner Desk Access · Generated ${new Date().toLocaleDateString('en-IN')} · Level-H ECC · ${origin}`,
     pageWidth / 2,
     pageHeight - 10,
     { align: 'center' }
@@ -837,7 +838,7 @@ export function downloadAttendanceReportPdf({
   const pageWidth = 210;
 
   // Header Banner
-  doc.setFillColor(88, 204, 2);
+  doc.setFillColor(229, 57, 53);
   doc.rect(0, 0, pageWidth, 24, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
@@ -932,6 +933,17 @@ export function downloadAttendanceReportPdf({
           hookData.cell.styles.fontStyle = 'bold';
         }
       }
+    },
+    didDrawPage() {
+      doc.setTextColor(148, 163, 184);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(
+        `Ekā Library Attendance System · ${library.name}`,
+        pageWidth / 2,
+        291,
+        { align: 'center' }
+      );
     },
   });
 

@@ -7,6 +7,7 @@ import React from 'react';
 import { Database, LogOut, ShieldCheck, Building2, GraduationCap, Lock } from 'lucide-react';
 import { AuthSession } from '../types/database';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { EkaSigmaIcon, EkaWordmark } from './EkaLogoMark';
 
 interface NavbarProps {
   session: AuthSession | null;
@@ -27,19 +28,18 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="shrink-0 z-40 bg-white/95 backdrop-blur-md border-b-2 border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-12 sm:h-15 flex items-center justify-between gap-4 sm:gap-8">
         
-        {/* Zone 1: Single text element Brand Zone */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#58cc02] border-b-2 border-[#46a302] flex items-center justify-center text-white font-black text-base sm:text-lg shadow-xs">
-            🦉
-          </div>
+        {/* Zone 1: Minimal Ekā Sigma Brand Zone */}
+        <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           <button
             type="button"
             onClick={() => onSelectTab && onSelectTab('home')}
-            className="text-left group cursor-pointer"
+            className="flex items-center gap-2 sm:gap-2.5 text-left group cursor-pointer"
+            aria-label="Ekā Home"
           >
-            <span className="font-display text-lg sm:text-2xl font-black tracking-tight text-[#3c3c3c] group-hover:text-[#58cc02] transition-colors whitespace-nowrap">
-              Study<span className="text-[#58cc02]">Lingo</span>
-            </span>
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#FAFAFA] border-2 border-[#e5e5e5] group-hover:border-[#E53935] flex items-center justify-center transition-colors">
+              <EkaSigmaIcon className="w-5 h-5 sm:w-5.5 sm:h-5.5" />
+            </div>
+            <EkaWordmark className="text-xl sm:text-2xl" />
           </button>
         </div>
 
@@ -50,7 +50,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               {session.role === 'admin' && (
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-[#e08500]" />
-                  <span className="font-black text-[#e08500]">Admin Portal</span>
+                  <span className="font-black text-[#e08500]">Ekā Admin</span>
                   <span aria-hidden="true" className="text-slate-300">·</span>
                   <span className="font-mono text-slate-600">{session.code}</span>
                 </div>
@@ -65,8 +65,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
               {session.role === 'student' && (
                 <div className="flex items-center gap-2">
-                  <GraduationCap className="w-4 h-4 text-[#46a302]" />
-                  <span className="font-black text-[#46a302]">{session.student?.name}</span>
+                  <GraduationCap className="w-4 h-4 text-[#E53935]" />
+                  <span className="font-black text-[#C62828]">{session.student?.name}</span>
                   <span aria-hidden="true" className="text-slate-300">·</span>
                   <span className="text-slate-600">Seat #{session.student?.seat_number || 'N/A'}</span>
                 </div>
@@ -75,7 +75,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           ) : (
             <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
               <Lock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Unified Access Portal</span>
+              <span>Ekā Unified Access Portal</span>
             </div>
           )}
         </nav>
@@ -91,8 +91,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                   title={isConnected ? 'Supabase Connected' : 'Configure Supabase'}
                   className="hidden sm:flex px-3 py-1.5 rounded-xl text-xs font-extrabold items-center gap-1.5 transition-all duo-btn-white cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  <Database className={`w-3.5 h-3.5 ${isConnected ? 'text-[#58cc02]' : 'text-[#ff9600]'}`} />
-                  <span className={isConnected ? 'text-[#46a302]' : 'text-[#e08500]'}>
+                  <Database className={`w-3.5 h-3.5 ${isConnected ? 'text-[#E53935]' : 'text-[#ff9600]'}`} />
+                  <span className={isConnected ? 'text-[#C62828]' : 'text-[#e08500]'}>
                     {isConnected ? 'DB Ready' : 'Setup DB'}
                   </span>
                 </button>
@@ -109,7 +109,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </>
           ) : (
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
-              <Lock className="w-3.5 h-3.5 text-[#58cc02]" />
+              <Lock className="w-3.5 h-3.5 text-[#E53935]" />
               <span className="hidden sm:inline">Secure Session</span>
             </div>
           )}

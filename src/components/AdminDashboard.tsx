@@ -81,7 +81,7 @@ import {
   playSound,
   fireDuolingoConfetti,
 } from '../lib/utils';
-import { MascotOwl } from './MascotOwl';
+import { EkaSigmaIcon } from './EkaLogoMark';
 
 export type AdminTab = 'overview' | 'libraries' | 'alerts' | 'codes' | 'settings';
 
@@ -1218,10 +1218,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
                 <div className="min-w-0">
                   <h1 className="font-display text-base sm:text-xl font-black text-[#3c3c3c] truncate">
-                    Admin Command Center
+                    Ekā Admin Dashboard
                   </h1>
                   <p className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">
-                    Master Network · Code {adminCode}
+                    Ekā Master Network · Code {adminCode}
                   </p>
                 </div>
               </div>
@@ -1400,7 +1400,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 )}
 
               <div className="flex items-center gap-3.5">
-                <MascotOwl mood="happy" size={56} className="shrink-0" />
+                <div className="w-14 h-14 rounded-2xl bg-[#FAFAFA] border-2 border-[#e5e5e5] flex items-center justify-center shrink-0">
+                  <EkaSigmaIcon className="w-8 h-8" />
+                </div>
                 <div className="min-w-0">
                   <h2 className="font-display text-sm sm:text-base font-black text-[#3c3c3c] truncate">
                     Quick Network Actions
@@ -1780,7 +1782,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
               {filteredLibraries.length === 0 ? (
                 <div className="flex-1 bg-white p-6 duo-card flex flex-col items-center justify-center text-center">
-                  <MascotOwl mood="happy" size={68} className="mb-2.5" />
+                  <div className="w-16 h-16 rounded-2xl bg-[#FAFAFA] border-2 border-[#e5e5e5] flex items-center justify-center mb-2.5">
+                    <EkaSigmaIcon className="w-9 h-9" />
+                  </div>
                   <h3 className="font-display text-base font-black text-[#3c3c3c]">
                     {libraries.length === 0 ? 'No Libraries Registered' : 'No Matching Libraries'}
                   </h3>

@@ -381,7 +381,7 @@ async function resolveLibraryAndSeatsForQr(
   if (!library) {
     library = {
       id: libraryId,
-      name: 'StudyLingo Library',
+      name: 'Ekā Library',
       location: 'Study Hall',
       total_seats: 50,
     };

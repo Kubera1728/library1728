@@ -952,7 +952,7 @@ export function generateOwnerMasterQrSvg(
   const size = Math.max(160, Math.round(options.size || 360));
   const darkColor = options.darkColor || '#0f172a';
   const lightColor = options.lightColor || '#ffffff';
-  const accentColor = options.accentColor || '#58cc02';
+  const accentColor = options.accentColor || '#E53935';
 
   const matrix = createOwnerMasterQrMatrix(libraryId, options.baseOrigin);
   const { moduleCount, quietZone, cutoutRadiusModules, badgeText } = matrix;
@@ -1047,7 +1047,7 @@ export async function generateOwnerMasterQrDataUrl(
 
   const darkColor = '#0f172a';
   const lightColor = '#ffffff';
-  const accentColor = '#58cc02';
+  const accentColor = '#E53935';
 
   ctx.fillStyle = lightColor;
   ctx.fillRect(0, 0, size, size);

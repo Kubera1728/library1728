@@ -5,10 +5,10 @@
 
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, Building2, KeyRound, AlertCircle, ShieldCheck, Loader2 } from 'lucide-react';
-import { MascotOwl } from './MascotOwl';
 import { dataService, isValidStudentPin } from '../lib/supabase';
 import { playSound, fireDuolingoConfetti } from '../lib/utils';
 import { AuthSession, Library } from '../types/database';
+import { EkaSigmaIcon, EkaWordmark } from './EkaLogoMark';
 
 interface LoginScreenProps {
   onLoginSuccess: (session: AuthSession) => void;
@@ -220,19 +220,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   };
 
   return (
-    <div className="min-h-[calc(100vh-4.5rem)] flex flex-col items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
 
-        {/* Mascot & Title */}
-        <div className="text-center mb-8">
-          <div className="relative inline-block mb-3">
-            <MascotOwl mood="studying" size={128} />
+        {/* Isolated Bold Geometric Sigma Logo & Typography */}
+        <div className="text-center mb-8 pt-2">
+          <div className="flex items-center justify-center mb-6">
+            <EkaSigmaIcon className="w-20 h-20 sm:w-24 sm:h-24" />
           </div>
 
-          <h1 className="font-display text-3xl sm:text-4xl font-black text-[#3c3c3c] tracking-tight">
-            Study<span className="text-[#58cc02]">Lingo</span>
+          <h1 className="font-display text-3xl sm:text-4xl font-black text-[#0f0f0f] tracking-tight flex items-baseline justify-center gap-2">
+            <span>Welcome to</span>
+            <EkaWordmark />
           </h1>
-          <p className="mt-2 text-sm font-semibold text-[#777777] max-w-xs mx-auto">
+          <p className="mt-2.5 text-sm font-semibold text-[#777777] max-w-xs mx-auto">
             {targetOwnerLibraryId
               ? 'Owner Desk Access · Enter your Library Owner Code to open your branch dashboard.'
               : 'Enter your 4-digit Student Pin or Admin/Owner Code to open your portal.'}
@@ -242,8 +243,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         {/* Main Clean & Secure Login Card */}
         <div className="duo-card p-6 sm:p-8 bg-white space-y-5">
           {targetOwnerLibraryId && (
-            <div className="p-3.5 rounded-2xl bg-emerald-50 border-2 border-emerald-200 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#58cc02] text-white flex items-center justify-center shrink-0 border-b-2 border-[#46a302]">
+            <div className="p-3.5 rounded-2xl bg-red-50 border-2 border-[#E53935]/30 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#E53935] text-white flex items-center justify-center shrink-0">
                 {loadingTargetLibrary ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
                 ) : (
@@ -251,10 +252,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <span className="block text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                <span className="block text-[10px] font-black uppercase tracking-wider text-[#E53935]">
                   Owner Master QR Mapped
                 </span>
-                <p className="font-display text-sm font-black text-[#3c3c3c] truncate">
+                <p className="font-display text-sm font-black text-[#0f0f0f] truncate">
                   {loadingTargetLibrary
                     ? 'Loading library...'
                     : targetLibrary?.name || 'Study Library'}
@@ -292,7 +293,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   autoFocus
                   autoComplete="off"
                   spellCheck={false}
-                  className="w-full px-4 py-3.5 pl-11 rounded-2xl border-2 border-[#e5e5e5] focus:border-[#58cc02] focus:ring-0 focus:outline-hidden font-display text-base font-black text-[#3c3c3c] uppercase placeholder:normal-case placeholder:font-normal placeholder:text-slate-400 bg-white transition-colors"
+                  className="w-full px-4 py-3.5 pl-11 rounded-2xl border-2 border-[#e5e5e5] focus:border-[#E53935] focus:ring-2 focus:ring-[#E53935]/20 focus:outline-hidden font-display text-base font-black text-[#0f0f0f] uppercase placeholder:normal-case placeholder:font-normal placeholder:text-slate-400 bg-white transition-colors"
                 />
                 <KeyRound className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               </div>
@@ -300,7 +301,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
             {/* Error Message */}
             {error && (
-              <div className="p-3.5 rounded-2xl bg-[#ff4b4b]/10 border-2 border-[#ff4b4b]/40 text-xs font-bold text-[#d33131] flex items-start gap-2.5 animate-shake">
+              <div className="p-3.5 rounded-2xl bg-[#E53935]/10 border-2 border-[#E53935]/40 text-xs font-bold text-[#C62828] flex items-start gap-2.5 animate-shake">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
@@ -310,7 +311,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="submit"
               disabled={loading || !code.trim()}
-              className="w-full py-3.5 px-6 rounded-2xl text-base font-black duo-btn-green flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide"
+              className="w-full py-3.5 px-6 rounded-2xl text-base font-black bg-[#E53935] hover:bg-[#D32F2F] active:translate-y-[2px] border-b-4 border-[#B71C1C] active:border-b-0 text-white flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-wide transition-all"
             >
               <span>{loading ? 'Verifying...' : targetOwnerLibraryId ? 'Open Owner Dashboard' : 'Continue'}</span>
               <ArrowRight className="w-5 h-5 stroke-[3]" />
@@ -331,7 +332,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         {/* Clean Security Footer */}
         <div className="flex items-center justify-center gap-1.5 text-center mt-6 text-xs text-slate-400 font-semibold">
           <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
-          <span>StudyLingo Secure Access Portal</span>
+          <span>Ekā Secure Access Portal</span>
         </div>
 
       </div>

@@ -61,17 +61,18 @@ export async function buildMasterQrPdfDocument({
 
   const pageWidth = 210;
   const pageHeight = 297;
-  const marginX = 12;
-  const headerH = 22;
-  const footerH = 10;
+  const marginX = 6;
+  const headerBandH = 11.5;
+  const gridStartY = 13.5;
+  const gridBottomY = 290.5;
 
   const cols = 3;
   const rows = 4;
-  const perPage = cols * rows; // 12 QR cards per page
-  const gapX = 6;
-  const gapY = 5;
-  const cardW = (pageWidth - marginX * 2 - gapX * (cols - 1)) / cols; // ~58mm
-  const cardH = (pageHeight - headerH - footerH - gapY * (rows - 1) - 8) / rows; // ~60mm
+  const perPage = cols * rows; // 12 QR cards per page (3x4)
+  const gapX = 3;
+  const gapY = 3;
+  const cardW = (pageWidth - marginX * 2 - gapX * (cols - 1)) / cols; // 64mm
+  const cardH = (gridBottomY - gridStartY - gapY * (rows - 1)) / rows; // 67mm
   const totalPages = Math.ceil(totalCards / perPage);
 
   // Batch-generate Level-H Center Number Badge QR PNGs to avoid unbounded concurrent spikes
@@ -96,19 +97,19 @@ export async function buildMasterQrPdfDocument({
   for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
     if (pageIdx > 0) doc.addPage();
 
-    // Branded A4 Header
+    // Compact Branded A4 Header to maximize printable sticker area
     doc.setFillColor(28, 176, 246);
-    doc.rect(0, 0, pageWidth, 18, 'F');
+    doc.rect(0, 0, pageWidth, headerBandH, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.text(`${libName} — Master Seat QR Sheet`, marginX, 8.5);
+    doc.setFontSize(10.5);
+    doc.text(`${libName} — Master Seat QR Sheet`, marginX, 5.3);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.2);
+    doc.setFontSize(7.4);
     doc.text(
-      `${libLocation} | Seats ${firstSeat} to ${lastSeat} (${totalCards} Desks · Level-H Center Badge QRs) | ${new Date().toLocaleDateString('en-IN')}`,
+      `${libLocation} | Seats ${firstSeat}–${lastSeat} (${totalCards} Desks · Level-H) | ${new Date().toLocaleDateString('en-IN')}`,
       marginX,
-      14.5
+      9.4
     );
 
     const startIdx = pageIdx * perPage;
@@ -119,63 +120,63 @@ export async function buildMasterQrPdfDocument({
       const col = localIdx % cols;
       const row = Math.floor(localIdx / cols);
       const x = marginX + col * (cardW + gapX);
-      const y = headerH + 2 + row * (cardH + gapY);
+      const y = gridStartY + row * (cardH + gapY);
 
       const seatLabel = seatLabels[idx];
       const badgeNum = formatSeatBadgeNumber(seatLabel);
       const qrImage = qrImages[idx];
 
-      // Card border & background
+      // Clean light-grey card cut outline with safe margin around QR
       doc.setDrawColor(203, 213, 225);
-      doc.setLineWidth(0.4);
+      doc.setLineWidth(0.35);
       doc.setFillColor(255, 255, 255);
-      doc.roundedRect(x, y, cardW, cardH, 3, 3, 'FD');
+      doc.roundedRect(x, y, cardW, cardH, 2.2, 2.2, 'FD');
 
-      // Seat header ribbon with centered title & compact badge chip
+      // Compact seat header ribbon with centered title & badge chip
       doc.setFillColor(241, 245, 249);
-      doc.roundedRect(x + 1.5, y + 1.5, cardW - 3, 9, 2, 2, 'F');
+      doc.roundedRect(x + 1.4, y + 1.4, cardW - 2.8, 7.0, 1.5, 1.5, 'F');
       doc.setTextColor(15, 23, 42);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
-      doc.text(`SEAT ${seatLabel}`, x + cardW / 2 - 4, y + 7.4, { align: 'center' });
+      doc.setFontSize(10.2);
+      doc.text(`SEAT ${seatLabel}`, x + cardW / 2 - 4.2, y + 6.1, { align: 'center' });
 
       // Dark #XX badge indicator on right of header ribbon
       doc.setFillColor(15, 23, 42);
-      doc.roundedRect(x + cardW - 13.5, y + 3.1, 10, 5.8, 1.5, 1.5, 'F');
+      doc.roundedRect(x + cardW - 12.2, y + 2.3, 9.4, 5.2, 1.2, 1.2, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
-      doc.text(`#${badgeNum}`, x + cardW - 8.5, y + 7.1, { align: 'center' });
+      doc.setFontSize(7.2);
+      doc.text(`#${badgeNum}`, x + cardW - 7.5, y + 5.9, { align: 'center' });
 
-      // Center-Number-Badge QR image
-      const qrSize = 36;
+      // Maximized Center-Number-Badge QR image (50mm x 50mm with >=7mm side cut clearance)
+      const qrSize = 50;
       const qrX = x + (cardW - qrSize) / 2;
-      const qrY = y + 12.2;
+      const qrY = y + 9.0;
       doc.addImage(qrImage, 'PNG', qrX, qrY, qrSize, qrSize, `qr_${seatLabel}`, 'FAST');
 
-      // Footer captions
+      // Compact footer captions
       doc.setTextColor(51, 65, 85);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.4);
-      const shortLib = libName.length > 26 ? `${libName.slice(0, 24)}..` : libName;
-      doc.text(shortLib, x + cardW / 2, y + cardH - 7, { align: 'center' });
+      doc.setFontSize(7.2);
+      const shortLib = libName.length > 30 ? `${libName.slice(0, 28)}..` : libName;
+      doc.text(shortLib, x + cardW / 2, y + cardH - 4.8, { align: 'center' });
 
       doc.setTextColor(100, 116, 139);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.2);
-      doc.text('Scan with Camera or App to Check-In / Out', x + cardW / 2, y + cardH - 3, {
+      doc.setFontSize(5.8);
+      doc.text('Scan with Camera or App to Check-In / Out', x + cardW / 2, y + cardH - 2.0, {
         align: 'center',
       });
     }
 
-    // Page footer
+    // Compact page footer
     doc.setTextColor(148, 163, 184);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.text(
       `Ekā QR Attendance System · Level-H Center Badge · Page ${pageIdx + 1} of ${totalPages}`,
       pageWidth / 2,
-      pageHeight - 4.5,
+      pageHeight - 2.8,
       { align: 'center' }
     );
   }

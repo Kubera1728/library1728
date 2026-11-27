@@ -514,7 +514,7 @@ export async function downloadMasterQrPdf(
     library: activeLibrary,
     seatLabels,
     batchSize: 12,
-    renderSeatPng: (seat) => generateSeatQrDataUrl(activeLibrary.id, seat, 280, origin),
+    renderSeatPng: (seat) => generateSeatQrDataUrl(activeLibrary.id, seat, 320, origin),
   });
   doc.save(filename);
 }

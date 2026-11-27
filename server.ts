@@ -1020,12 +1020,12 @@ async function startServer() {
       const { doc, filename } = await buildMasterQrPdfDocument({
         library,
         seatLabels,
-        batchSize: 16,
+        batchSize: 12,
         renderSeatPng: (seatLabel) =>
           generateSeatQrPngBytes(
             library.id,
             seatLabel,
-            { size: 240, baseOrigin },
+            { size: 320, baseOrigin },
             (raw) => zlib.deflateSync(raw)
           ),
       });

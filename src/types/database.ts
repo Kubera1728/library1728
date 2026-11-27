@@ -96,3 +96,14 @@ export interface SeatQrReference {
   updated_at?: string;
 }
 
+export interface FeePayment {
+  id: string;
+  library_id: string;
+  student_id: string;
+  month_key: string; // YYYY-MM
+  amount: number;
+  status: 'paid' | 'due';
+  payment_date: string | null; // YYYY-MM-DD
+  created_at?: string;
+  updated_at?: string;
+}

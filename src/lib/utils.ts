@@ -295,6 +295,23 @@ export function generateWhatsAppRenewalUrl(
 }
 
 /**
+ * Builds WhatsApp Monthly Fee Reminder URL for a student
+ */
+export function generateWhatsAppFeeReminderUrl(
+  phone: string,
+  studentName: string,
+  libraryName: string,
+  seatNumber: string,
+  monthLabel: string,
+  feeAmount: number,
+  shift?: string
+): string {
+  const shiftLine = shift ? `\n• *Shift:* ${shift}` : '';
+  const message = `Hello ${studentName}! 👋\n\nFriendly monthly fee reminder from *${libraryName}*:\n• *Month:* ${monthLabel}\n• *Seat:* #${seatNumber}${shiftLine}\n• *Pending Fee:* ₹${feeAmount}\n\nPlease complete your fee payment at the desk or share confirmation once paid. Thank you! 🙏`;
+  return generateWhatsAppToPhoneUrl(phone, message);
+}
+
+/**
  * Builds WhatsApp License Expiry / Reminder URL for a Library Owner
  */
 export function generateWhatsAppLibraryLicenseUrl(
@@ -409,6 +426,7 @@ export function stripSystemNoteTags(notes?: string): string {
     .replace(/\s*\[RENEW_SENT\]/gi, '')
     .replace(/\s*\[EXPIRING_ACK(?::[^\]]*)?\]/gi, '')
     .replace(/\s*\[EXPIRING_SENT(?::[^\]]*)?\]/gi, '')
+    .replace(/\s*\[FEE_PAID(?::[^\]]*)?\]/gi, '')
     .replace(/\s*·?\s*Fee:\s*₹\d+/gi, '')
     .trim();
 }

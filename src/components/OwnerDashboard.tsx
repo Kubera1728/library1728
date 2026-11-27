@@ -49,7 +49,7 @@ import {
   Copy,
   ShieldCheck,
 } from 'lucide-react';
-import { AttendanceRecord, BroadcastRequest, Library, Shift, Student } from '../types/database';
+import { AttendanceRecord, BroadcastRequest, FeePayment, Library, Shift, Student } from '../types/database';
 import {
   dataService,
   isValidStudentPin,
@@ -76,6 +76,7 @@ import {
   formatFriendlyDate,
   generatePhoneCallUrl,
   generateWhatsAppBlankChatUrl,
+  generateWhatsAppFeeReminderUrl,
   getStudentExitDate,
   isStudentExited,
   stripSystemNoteTags,
@@ -91,7 +92,8 @@ export type OwnerNavSection =
   | 'shifts'
   | 'qrcodes'
   | 'attendance'
-  | 'broadcasts';
+  | 'broadcasts'
+  | 'fees';
 
 interface OwnerDashboardProps {
   ownerCode: string;
@@ -190,6 +192,13 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     studentName: string;
     seatNumber: string;
   } | null>(null);
+
+  // Monthly Fees Management states
+  const [feeMonth, setFeeMonth] = useState(() => getLocalDateKey().slice(0, 7));
+  const [feeFilter, setFeeFilter] = useState<'all' | 'due' | 'paid'>('all');
+  const [feePayments, setFeePayments] = useState<FeePayment[]>([]);
+  const [markingPaidStudentId, setMarkingPaidStudentId] = useState<string | null>(null);
+  const [feeActionError, setFeeActionError] = useState<string | null>(null);
 
   // Broadcast Notice Request & WhatsApp Chat History states
   const [broadcastHistory, setBroadcastHistory] = useState<BroadcastRequest[]>([]);
@@ -860,13 +869,14 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     setLoading(true);
     setSyncError(null);
     try {
-      const [libRes, studsRes, shiftsRes, bcastsRes, attRes, loginsRes] = await Promise.allSettled([
+      const [libRes, studsRes, shiftsRes, bcastsRes, attRes, loginsRes, feesRes] = await Promise.allSettled([
         dataService.getLibraryById(libraryId),
         dataService.getStudentsByLibrary(libraryId),
         dataService.getShiftsByLibrary(libraryId),
         dataService.getBroadcastRequestsByLibrary(libraryId),
         dataService.getAttendanceByLibrary(libraryId),
         dataService.getAllLogins(),
+        dataService.getFeePaymentsByLibrary(libraryId),
       ]);
 
       const lib = libRes.status === 'fulfilled' ? libRes.value : null;
@@ -875,6 +885,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       const bcasts = bcastsRes.status === 'fulfilled' ? bcastsRes.value : null;
       const attLogs = attRes.status === 'fulfilled' ? attRes.value : null;
       const allLogins = loginsRes.status === 'fulfilled' ? loginsRes.value : [];
+      const fetchedFees = feesRes.status === 'fulfilled' ? feesRes.value : null;
 
       const safeAttLogs = attLogs ?? [];
       const activationDate = dataService.getLibraryActivationDate(libraryId, safeAttLogs);
@@ -912,6 +923,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       }
       if (attLogs) {
         setAttendanceLogs(attLogs.filter((r) => r.date >= activationDate));
+      }
+      if (fetchedFees) {
+        setFeePayments(fetchedFees);
+      } else if (studs) {
+        const syncedFees = await dataService.getFeePaymentsByLibrary(libraryId, studs).catch(() => []);
+        setFeePayments(syncedFees);
       }
 
       const syncErrors: string[] = [];
@@ -964,10 +981,17 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         void loadData();
       },
     });
+    const unsubscribeFees = dataService.subscribeToFeeUpdates({
+      libraryId,
+      onUpdate: () => {
+        void loadData();
+      },
+    });
     return () => {
       unsubscribeLibrary();
       unsubscribeStudents();
       unsubscribeShifts();
+      unsubscribeFees();
     };
   }, [libraryId]);
 
@@ -1634,7 +1658,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
       const existingSystemTags = (
         (editingStudent.notes || '').match(
-          /\[(?:JOINED(?::[^\]]*)?|JOIN_ACK|JOIN_SENT|RENEWED(?::[^\]]*)?|RENEW_ACK|RENEW_SENT|EXPIRING_ACK(?::[^\]]*)?|EXPIRING_SENT(?::[^\]]*)?)\]/gi
+          /\[(?:JOINED(?::[^\]]*)?|JOIN_ACK|JOIN_SENT|RENEWED(?::[^\]]*)?|RENEW_ACK|RENEW_SENT|EXPIRING_ACK(?::[^\]]*)?|EXPIRING_SENT(?::[^\]]*)?|FEE_PAID(?::[^\]]*)?)\]/gi
         ) || []
       ).filter((tag) => {
         if (isRenewalExtended) {
@@ -1649,20 +1673,102 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
       const finalEditNotes = [baseComposedNotes, ...existingSystemTags].filter(Boolean).join(' ');
 
+      const shiftMonth = (monthKey: string, delta: number): string => {
+        const [yStr, mStr] = monthKey.split('-');
+        const y = Number(yStr) || new Date().getFullYear();
+        const m = Number(mStr) || new Date().getMonth() + 1;
+        const d = new Date(y, m - 1 + delta, 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      };
+
+      let editPaidMonths: string[] = [];
+      if (isRenewalExtended) {
+        const todayMonthKey = todayStr.slice(0, 7);
+        const alreadyPaid = new Set(
+          feePayments
+            .filter((fp) => fp.student_id === editingStudent.id && fp.status === 'paid')
+            .map((fp) => fp.month_key)
+        );
+        const prevMs = new Date(editingStudent.subscription_end).getTime();
+        const nextMs = new Date(studentForm.subscription_end).getTime();
+        const diffDays =
+          Number.isFinite(prevMs) && Number.isFinite(nextMs)
+            ? Math.max(30, Math.round((nextMs - prevMs) / 86400000))
+            : 30;
+        const planMonths = Math.max(1, Math.floor((diffDays + 5) / 30));
+
+        const monthsSet = new Set<string>();
+        if (!alreadyPaid.has(todayMonthKey)) {
+          monthsSet.add(todayMonthKey);
+        }
+        let cursor = todayMonthKey;
+        let safety = 0;
+        while (alreadyPaid.has(cursor) && safety < 24) {
+          cursor = shiftMonth(cursor, 1);
+          safety += 1;
+        }
+        for (let i = 0; i < planMonths; i++) {
+          monthsSet.add(shiftMonth(cursor, i));
+        }
+        editPaidMonths = Array.from(monthsSet);
+      }
+
+      const editNotesWithFeeTags =
+        editPaidMonths.length > 0
+          ? [
+              finalEditNotes,
+              ...editPaidMonths.map(
+                (mKey) => `[FEE_PAID:${mKey}:${todayStr}:${feeVal}]`
+              ),
+            ]
+              .filter(Boolean)
+              .join(' ')
+          : finalEditNotes;
+
       try {
         if (nextPinToSave) {
           await dataService.updateStudentPin(editingStudent.id, nextPinToSave);
         }
-        await dataService.updateStudent({
-          id: editingStudent.id,
+        const updatedStudentPayload: Student = {
+          ...editingStudent,
           name: studentForm.name.trim(),
           phone: cleanPhone,
           seat_number: cleanSeat,
           shift: studentForm.shift,
           subscription_start: studentForm.subscription_start,
           subscription_end: studentForm.subscription_end,
-          notes: finalEditNotes,
+          notes: editNotesWithFeeTags,
+        };
+        await dataService.updateStudent({
+          id: editingStudent.id,
+          name: updatedStudentPayload.name,
+          phone: updatedStudentPayload.phone,
+          seat_number: updatedStudentPayload.seat_number,
+          shift: updatedStudentPayload.shift,
+          subscription_start: updatedStudentPayload.subscription_start,
+          subscription_end: updatedStudentPayload.subscription_end,
+          notes: editNotesWithFeeTags,
         });
+        if (editPaidMonths.length > 0) {
+          const savedFees = await dataService
+            .markFeePaymentsPaid({
+              libraryId,
+              student: updatedStudentPayload,
+              monthKeys: editPaidMonths,
+              amount: feeVal,
+              paymentDate: todayStr,
+            })
+            .catch(() => []);
+          if (savedFees.length > 0) {
+            const monthSet = new Set(editPaidMonths);
+            setFeePayments((prev) => [
+              ...savedFees,
+              ...prev.filter(
+                (f) => !(f.student_id === editingStudent.id && monthSet.has(f.month_key))
+              ),
+            ]);
+          }
+        }
         playSound('success');
         setShowAddModal(false);
         loadData();
@@ -1678,7 +1784,36 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       const studentId = 'stu_' + Math.random().toString(36).substring(2, 9);
       const generatedPin = trimmedPin || (await dataService.generateUniqueStudentPin());
 
-      const finalNewNotes = `${baseComposedNotes} [JOINED:${todayStr}]`;
+      const currentMonthKey = todayStr.slice(0, 7);
+      const startMonthKey = (studentForm.subscription_start || todayStr).slice(0, 7);
+      const startMs = new Date(studentForm.subscription_start || todayStr).getTime();
+      const endMs = new Date(studentForm.subscription_end || todayStr).getTime();
+      const diffDays =
+        Number.isFinite(startMs) && Number.isFinite(endMs)
+          ? Math.max(0, Math.round((endMs - startMs) / 86400000))
+          : 30;
+      const coveredMonthsCount = Math.max(1, Math.floor((diffDays + 5) / 30));
+
+      const shiftMonth = (monthKey: string, delta: number): string => {
+        const [yStr, mStr] = monthKey.split('-');
+        const y = Number(yStr) || new Date().getFullYear();
+        const m = Number(mStr) || new Date().getMonth() + 1;
+        const d = new Date(y, m - 1 + delta, 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      };
+
+      const admissionMonthSet = new Set<string>([currentMonthKey]);
+      if (coveredMonthsCount > 1 && /^\d{4}-\d{2}$/.test(startMonthKey)) {
+        for (let i = 0; i < coveredMonthsCount; i++) {
+          admissionMonthSet.add(shiftMonth(startMonthKey, i));
+        }
+      }
+      const admissionPaidMonths = Array.from(admissionMonthSet);
+      const feeTags = admissionPaidMonths
+        .map((mKey) => `[FEE_PAID:${mKey}:${todayStr}:${feeVal}]`)
+        .join(' ');
+
+      const finalNewNotes = `${baseComposedNotes} [JOINED:${todayStr}] ${feeTags}`.trim();
 
       const newStudent: Student = {
         id: studentId,
@@ -1695,6 +1830,34 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
 
       try {
         await dataService.createStudent(newStudent, generatedPin);
+        const savedFees = await dataService
+          .markFeePaymentsPaid({
+            libraryId,
+            student: newStudent,
+            monthKeys: admissionPaidMonths,
+            amount: feeVal,
+            paymentDate: todayStr,
+          })
+          .catch(() =>
+            admissionPaidMonths.map((monthKey) => ({
+              id: `fee_${libraryId}_${newStudent.id}_${monthKey}`,
+              library_id: libraryId,
+              student_id: newStudent.id,
+              month_key: monthKey,
+              amount: feeVal,
+              status: 'paid' as const,
+              payment_date: todayStr,
+            }))
+          );
+        if (savedFees.length > 0) {
+          const monthSet = new Set(admissionPaidMonths);
+          setFeePayments((prev) => [
+            ...savedFees,
+            ...prev.filter(
+              (f) => !(f.student_id === newStudent.id && monthSet.has(f.month_key))
+            ),
+          ]);
+        }
         playSound('success');
         fireDuolingoConfetti();
         setShowAddModal(false);
@@ -1871,11 +2034,86 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       const baseComposedNotes = trimmedNotes ? `${trimmedNotes} · Fee: ₹${feeVal}` : `Fee: ₹${feeVal}`;
 
       const preservedSystemTags = (
-        (renewStudentTarget.notes || '').match(/\[(?:JOINED(?::[^\]]*)?|JOIN_ACK|JOIN_SENT)\]/gi) || []
+        (renewStudentTarget.notes || '').match(/\[(?:JOINED(?::[^\]]*)?|JOIN_ACK|JOIN_SENT|FEE_PAID(?::[^\]]*)?)\]/gi) || []
       );
-      const finalRenewNotes = [baseComposedNotes, ...preservedSystemTags, `[RENEWED:${todayStr}]`]
+
+      const shiftMonth = (monthKey: string, delta: number): string => {
+        const [yStr, mStr] = monthKey.split('-');
+        const y = Number(yStr) || new Date().getFullYear();
+        const m = Number(mStr) || new Date().getMonth() + 1;
+        const d = new Date(y, m - 1 + delta, 1);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      };
+
+      const todayMonthKey = todayStr.slice(0, 7);
+      const prevEndStr = renewStudentTarget.subscription_end || todayStr;
+      const isStillActive = prevEndStr >= todayStr;
+      const alreadyPaidMonths = new Set(
+        feePayments
+          .filter((fp) => fp.student_id === renewStudentTarget.id && fp.status === 'paid')
+          .map((fp) => fp.month_key)
+      );
+      const baseDateMs = new Date(isStillActive ? prevEndStr : todayStr).getTime();
+      const nextEndMs = new Date(renewForm.subscription_end).getTime();
+      const diffDays =
+        Number.isFinite(baseDateMs) && Number.isFinite(nextEndMs)
+          ? Math.max(0, Math.round((nextEndMs - baseDateMs) / 86400000))
+          : 30;
+      const planMonths = Math.max(
+        1,
+        Number(renewForm.plan_months) || 1,
+        Math.floor((diffDays + 5) / 30)
+      );
+
+      const renewMonthSet = new Set<string>();
+      // Always guarantee current month is Paid on renewal
+      if (!alreadyPaidMonths.has(todayMonthKey)) {
+        renewMonthSet.add(todayMonthKey);
+      }
+
+      // Mark the renewed cycle month(s) starting from the first unpaid month >= todayMonth
+      let cursor = todayMonthKey;
+      let safety = 0;
+      while (alreadyPaidMonths.has(cursor) && safety < 24) {
+        cursor = shiftMonth(cursor, 1);
+        safety += 1;
+      }
+      if (isStillActive && prevEndStr.slice(0, 7) === todayMonthKey && !alreadyPaidMonths.has(todayMonthKey)) {
+        // Active student expiring later this month who didn't have a Paid row yet:
+        // cover this month AND the upcoming renewed months starting next month
+        cursor = shiftMonth(todayMonthKey, 1);
+      }
+      for (let i = 0; i < planMonths; i++) {
+        renewMonthSet.add(shiftMonth(cursor, i));
+      }
+      const renewedPaidMonths = Array.from(renewMonthSet);
+
+      const filteredExistingTags = preservedSystemTags.filter((tag) => {
+        const match = tag.match(/\[FEE_PAID:(\d{4}-\d{2}):/i);
+        return !match || !renewMonthSet.has(match[1]);
+      });
+      const newFeeTags = renewedPaidMonths.map(
+        (mKey) => `[FEE_PAID:${mKey}:${todayStr}:${feeVal}]`
+      );
+
+      const finalRenewNotes = [
+        baseComposedNotes,
+        ...filteredExistingTags,
+        ...newFeeTags,
+        `[RENEWED:${todayStr}]`,
+      ]
         .filter(Boolean)
         .join(' ');
+
+      const updatedStudentObj: Student = {
+        ...renewStudentTarget,
+        seat_number: cleanSeat,
+        shift: renewForm.shift,
+        subscription_start: renewForm.subscription_start,
+        subscription_end: renewForm.subscription_end,
+        is_active: true,
+        notes: finalRenewNotes,
+      };
 
       await dataService.updateStudent({
         id: renewStudentTarget.id,
@@ -1886,6 +2124,34 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         is_active: true,
         notes: finalRenewNotes,
       });
+
+      const savedFees = await dataService
+        .markFeePaymentsPaid({
+          libraryId,
+          student: updatedStudentObj,
+          monthKeys: renewedPaidMonths,
+          amount: feeVal,
+          paymentDate: todayStr,
+        })
+        .catch(() =>
+          renewedPaidMonths.map((monthKey) => ({
+            id: `fee_${libraryId}_${renewStudentTarget.id}_${monthKey}`,
+            library_id: libraryId,
+            student_id: renewStudentTarget.id,
+            month_key: monthKey,
+            amount: feeVal,
+            status: 'paid' as const,
+            payment_date: todayStr,
+          }))
+        );
+      if (savedFees.length > 0) {
+        setFeePayments((prev) => [
+          ...savedFees,
+          ...prev.filter(
+            (f) => !(f.student_id === renewStudentTarget.id && renewMonthSet.has(f.month_key))
+          ),
+        ]);
+      }
 
       const renewedName = renewStudentTarget.name;
       const renewedTill = renewForm.subscription_end;
@@ -1928,6 +2194,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       const exitedStudent = await dataService.exitStudent(target);
       setStudents((prev) =>
         prev.map((s) => (s.id === target.id ? exitedStudent : s))
+      );
+      setFeePayments((prev) =>
+        prev.filter((f) => !(f.student_id === target.id && f.status !== 'paid'))
       );
       playSound('pop');
       setStudentToExit(null);
@@ -1984,7 +2253,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     { id: 'students', label: 'Students', icon: Users },
     { id: 'seatmap', label: 'Seat Map', icon: Grid3X3 },
     { id: 'shifts', label: 'Shifts', icon: Clock },
-    { id: 'broadcasts', label: 'Broadcasts', icon: MessageSquare, badge: pendingBroadcastsCount },
+    { id: 'fees', label: 'Fees', icon: IndianRupee },
   ];
 
   const isLibraryInactive = library && (library.subscription_status || '').toLowerCase() !== 'active';
@@ -3643,7 +3912,16 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 </div>
               ) : (
                 <div className="bg-[#075e54] text-white px-3.5 py-2.5 flex items-center justify-between gap-2.5 shrink-0 shadow-xs">
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchSection('overview')}
+                      className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 text-white flex items-center justify-center cursor-pointer shrink-0 transition-colors"
+                      title="Back to Overview"
+                      aria-label="Back to Overview"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
                     <div className="w-9 h-9 rounded-full bg-[#25d366] text-white flex items-center justify-center font-black shrink-0 shadow-2xs">
                       <Building2 className="w-4 h-4" />
                     </div>
@@ -3968,6 +4246,399 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           );
         })()}
 
+        {/* TAB 8: MONTHLY FEES MANAGEMENT */}
+        {ownerSection === 'fees' && (() => {
+          const formatMonthYearLabel = (monthKey: string): string => {
+            const [yStr, mStr] = monthKey.split('-');
+            const y = Number(yStr);
+            const m = Number(mStr);
+            if (!y || !m) return monthKey;
+            return new Date(y, m - 1, 1).toLocaleDateString('en-US', {
+              month: 'short',
+              year: 'numeric',
+            });
+          };
+
+          const shiftMonthKey = (monthKey: string, delta: number): string => {
+            const [yStr, mStr] = monthKey.split('-');
+            const y = Number(yStr) || new Date().getFullYear();
+            const m = Number(mStr) || new Date().getMonth() + 1;
+            const d = new Date(y, m - 1 + delta, 1);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          };
+
+          const currentMonthKey = getLocalDateKey().slice(0, 7);
+          const monthSet = new Set<string>();
+          for (let offset = -12; offset <= 3; offset++) {
+            monthSet.add(shiftMonthKey(currentMonthKey, offset));
+          }
+          monthSet.add(feeMonth);
+          for (const fp of feePayments) {
+            if (/^\d{4}-\d{2}$/.test(fp.month_key)) monthSet.add(fp.month_key);
+          }
+          const monthOptions = Array.from(monthSet).sort();
+
+          const getStudentFeeAmount = (student: Student): number => {
+            const match = (student.notes || '').match(/Fee:\s*₹(\d+)/i);
+            if (match) return Number(match[1]) || 0;
+            return getShiftFeeByString(student.shift);
+          };
+
+          const paymentByStudentId = new Map<string, FeePayment>();
+          for (const fp of feePayments) {
+            if (fp.month_key === feeMonth) {
+              paymentByStudentId.set(fp.student_id, fp);
+            }
+          }
+
+          const monthlyEntries = students
+            .filter((s) => {
+              const payment = paymentByStudentId.get(s.id);
+              if (isStudentExited(s)) {
+                return payment?.status === 'paid';
+              }
+              if (payment) return true;
+              const startMonth = (s.subscription_start || '').slice(0, 7);
+              return !startMonth || startMonth <= feeMonth;
+            })
+            .map((student) => {
+              const payment = paymentByStudentId.get(student.id);
+              const isPaid = payment?.status === 'paid';
+              const baseFee = getStudentFeeAmount(student);
+              const amount =
+                isPaid && payment && payment.amount > 0 ? payment.amount : baseFee;
+              return {
+                student,
+                status: (isPaid ? 'paid' : 'due') as 'paid' | 'due',
+                amount,
+                paymentDate: isPaid ? payment?.payment_date || null : null,
+              };
+            })
+            .sort((a, b) => {
+              if (a.status !== b.status) return a.status === 'due' ? -1 : 1;
+              return normalizeSeatLabel(a.student.seat_number).localeCompare(
+                normalizeSeatLabel(b.student.seat_number),
+                undefined,
+                { numeric: true }
+              );
+            });
+
+          const collectedRevenue = monthlyEntries
+            .filter((e) => e.status === 'paid')
+            .reduce((sum, e) => sum + e.amount, 0);
+          const pendingDueFees = monthlyEntries
+            .filter((e) => e.status === 'due')
+            .reduce((sum, e) => sum + e.amount, 0);
+          const totalExpected = collectedRevenue + pendingDueFees;
+
+          const paidCount = monthlyEntries.filter((e) => e.status === 'paid').length;
+          const dueCount = monthlyEntries.filter((e) => e.status === 'due').length;
+
+          const visibleEntries = monthlyEntries.filter((entry) => {
+            if (feeFilter === 'all') return true;
+            return entry.status === feeFilter;
+          });
+
+          const selectedMonthLabel = formatMonthYearLabel(feeMonth);
+
+          const handleMarkStudentFeePaid = async (student: Student, amount: number) => {
+            setFeeActionError(null);
+            setMarkingPaidStudentId(student.id);
+            const todayIso = getLocalDateKey();
+            try {
+              const saved = await dataService.markFeePaymentPaid({
+                libraryId,
+                student,
+                monthKey: feeMonth,
+                amount,
+                paymentDate: todayIso,
+              });
+              setFeePayments((prev) => [
+                saved,
+                ...prev.filter(
+                  (f) => !(f.student_id === student.id && f.month_key === feeMonth)
+                ),
+              ]);
+              playSound('success');
+              fireDuolingoConfetti();
+            } catch (err: any) {
+              setFeeActionError(err?.message || 'Could not update fee payment status.');
+            } finally {
+              setMarkingPaidStudentId(null);
+            }
+          };
+
+          return (
+            <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+              {/* Top Bar with Month-Year Selector */}
+              <div className="bg-white p-2.5 sm:px-4 sm:py-3 duo-card flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center border-b-2 border-emerald-700 shrink-0">
+                    <IndianRupee className="w-4 h-4 stroke-[2.6]" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="font-display text-sm sm:text-base font-black text-[#3c3c3c] leading-tight truncate">
+                      Fees Management
+                    </h2>
+                    <p className="text-[10px] sm:text-xs font-semibold text-slate-500 truncate">
+                      {monthlyEntries.length} student{monthlyEntries.length === 1 ? '' : 's'} ·{' '}
+                      {selectedMonthLabel}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Month-Year Selector */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playSound('pop');
+                      setFeeMonth((prev) => shiftMonthKey(prev, -1));
+                    }}
+                    className="w-8 h-8 rounded-xl duo-btn-white flex items-center justify-center cursor-pointer text-slate-700"
+                    title="Previous Month"
+                    aria-label="Previous Month"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  <div className="relative">
+                    <select
+                      value={feeMonth}
+                      onChange={(e) => {
+                        playSound('pop');
+                        setFeeMonth(e.target.value);
+                      }}
+                      aria-label="Select fee month and year"
+                      className="appearance-none pl-3 pr-7 py-1.5 rounded-xl bg-slate-50 border-2 border-[#e5e5e5] font-display font-black text-xs sm:text-sm text-[#3c3c3c] focus:outline-hidden focus:border-[#1cb0f6] cursor-pointer min-h-[34px]"
+                    >
+                      {monthOptions.map((mKey) => (
+                        <option key={mKey} value={mKey}>
+                          {formatMonthYearLabel(mKey)}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playSound('pop');
+                      setFeeMonth((prev) => shiftMonthKey(prev, 1));
+                    }}
+                    className="w-8 h-8 rounded-xl duo-btn-white flex items-center justify-center cursor-pointer text-slate-700"
+                    title="Next Month"
+                    aria-label="Next Month"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* 3 Summary Cards: Collected Revenue (Green), Pending/Due Fees (Red), Total Expected (Blue) */}
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 shrink-0">
+                <div className="rounded-2xl bg-emerald-50 border-2 border-emerald-200 px-2.5 py-2.5 sm:p-3.5 shadow-[0_3px_0_0_#a7f3d0]">
+                  <p className="text-[10px] sm:text-xs font-extrabold text-emerald-700 uppercase tracking-wide truncate">
+                    Collected Revenue
+                  </p>
+                  <p className="font-display text-base sm:text-2xl font-black text-emerald-700 tabular-nums mt-0.5 truncate">
+                    ₹{collectedRevenue.toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] font-bold text-emerald-600/90 tabular-nums mt-0.5 truncate">
+                    {paidCount} paid
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-red-50 border-2 border-red-200 px-2.5 py-2.5 sm:p-3.5 shadow-[0_3px_0_0_#fecaca]">
+                  <p className="text-[10px] sm:text-xs font-extrabold text-[#E53935] uppercase tracking-wide truncate">
+                    Pending/Due Fees
+                  </p>
+                  <p className="font-display text-base sm:text-2xl font-black text-[#E53935] tabular-nums mt-0.5 truncate">
+                    ₹{pendingDueFees.toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] font-bold text-red-500 tabular-nums mt-0.5 truncate">
+                    {dueCount} due
+                  </p>
+                </div>
+
+                <div className="rounded-2xl bg-sky-50 border-2 border-sky-200 px-2.5 py-2.5 sm:p-3.5 shadow-[0_3px_0_0_#bae6fd]">
+                  <p className="text-[10px] sm:text-xs font-extrabold text-[#1899d6] uppercase tracking-wide truncate">
+                    Total Expected
+                  </p>
+                  <p className="font-display text-base sm:text-2xl font-black text-[#1899d6] tabular-nums mt-0.5 truncate">
+                    ₹{totalExpected.toLocaleString('en-IN')}
+                  </p>
+                  <p className="text-[10px] font-bold text-sky-700/80 tabular-nums mt-0.5 truncate">
+                    {monthlyEntries.length} total
+                  </p>
+                </div>
+              </div>
+
+              {/* Filter Pills: All, Due, Paid */}
+              <div className="flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-1.5">
+                  {(
+                    [
+                      { id: 'all', label: 'All', count: monthlyEntries.length },
+                      { id: 'due', label: 'Due', count: dueCount },
+                      { id: 'paid', label: 'Paid', count: paidCount },
+                    ] as const
+                  ).map((pill) => {
+                    const active = feeFilter === pill.id;
+                    const activeClass =
+                      pill.id === 'paid'
+                        ? 'bg-emerald-600 text-white border-emerald-700'
+                        : pill.id === 'due'
+                        ? 'bg-[#E53935] text-white border-[#B71C1C]'
+                        : 'bg-[#1cb0f6] text-white border-[#1899d6]';
+                    return (
+                      <button
+                        key={pill.id}
+                        type="button"
+                        onClick={() => {
+                          playSound('pop');
+                          setFeeFilter(pill.id);
+                        }}
+                        className={`px-3.5 py-1.5 rounded-full text-xs font-black border-2 transition-all cursor-pointer tabular-nums ${
+                          active
+                            ? activeClass
+                            : 'bg-white text-slate-600 border-[#e5e5e5] hover:bg-slate-50'
+                        }`}
+                      >
+                        {pill.label} ({pill.count})
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {feeActionError && (
+                  <span className="text-[11px] font-bold text-red-600 truncate">
+                    {feeActionError}
+                  </span>
+                )}
+              </div>
+
+              {/* Scrollable Monthly Student Fees List */}
+              <div className="bg-white duo-card flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100">
+                {visibleEntries.length === 0 ? (
+                  <div className="h-full min-h-[180px] flex flex-col items-center justify-center p-6 text-center">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-2">
+                      <IndianRupee className="w-6 h-6" />
+                    </div>
+                    <p className="font-display text-sm font-black text-slate-700">
+                      {monthlyEntries.length === 0
+                        ? `No Students Active in ${selectedMonthLabel}`
+                        : `No ${feeFilter === 'due' ? 'Due' : feeFilter === 'paid' ? 'Paid' : ''} Records`}
+                    </p>
+                    <p className="text-xs font-semibold text-slate-400 mt-0.5 max-w-xs">
+                      {monthlyEntries.length === 0
+                        ? 'Select another month above or add students to track monthly fees.'
+                        : 'Try switching the filter pill above to see other students.'}
+                    </p>
+                  </div>
+                ) : (
+                  visibleEntries.map(({ student, status, amount, paymentDate }) => {
+                    const cleanSeat = normalizeSeatLabel(student.seat_number);
+                    const isPaid = status === 'paid';
+                    const isSavingThis = markingPaidStudentId === student.id;
+                    const whatsappRemindUrl = generateWhatsAppFeeReminderUrl(
+                      student.phone,
+                      student.name,
+                      library?.name || 'Study Library',
+                      cleanSeat,
+                      selectedMonthLabel,
+                      amount,
+                      student.shift
+                    );
+
+                    return (
+                      <div
+                        key={student.id}
+                        className="p-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-slate-50/70 transition-colors"
+                      >
+                        {/* Student Core Info */}
+                        <div className="flex items-start sm:items-center justify-between gap-2 min-w-0 flex-1">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-display text-sm sm:text-base font-black text-[#3c3c3c] truncate">
+                                {student.name}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-700 text-[10px] sm:text-xs font-black tabular-nums shrink-0">
+                                Seat #{cleanSeat}
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide shrink-0 ${
+                                  isPaid
+                                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                                    : 'bg-red-100 text-[#E53935] border border-red-200'
+                                }`}
+                              >
+                                {isPaid ? 'Paid' : 'Due'}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] font-semibold text-slate-500 mt-1">
+                              <span className="truncate max-w-[200px] sm:max-w-[260px]">
+                                {student.shift}
+                              </span>
+                              <span aria-hidden="true">·</span>
+                              <span className="tabular-nums">
+                                {isPaid && paymentDate
+                                  ? `Paid: ${formatFriendlyDate(paymentDate)}`
+                                  : 'Payment Date: —'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="font-display text-base sm:text-lg font-black text-[#3c3c3c] tabular-nums">
+                              ₹{amount.toLocaleString('en-IN')}
+                            </div>
+                            <div className="text-[10px] font-bold text-slate-400">
+                              {selectedMonthLabel}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick Actions for Due Students */}
+                        {!isPaid && (
+                          <div className="flex items-center gap-2 shrink-0 sm:pl-2">
+                            <button
+                              type="button"
+                              disabled={isSavingThis}
+                              onClick={() => void handleMarkStudentFeePaid(student, amount)}
+                              className="flex-1 sm:flex-none px-3 py-1.5 rounded-xl bg-[#58cc02] hover:bg-[#61e002] border-b-[3px] border-[#46a302] active:border-b-0 active:translate-y-[3px] disabled:opacity-60 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-all min-h-[34px] whitespace-nowrap"
+                            >
+                              {isSavingThis ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              )}
+                              <span>{isSavingThis ? 'Saving...' : 'Mark Paid'}</span>
+                            </button>
+
+                            <a
+                              href={whatsappRemindUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => playSound('pop')}
+                              className="flex-1 sm:flex-none px-3 py-1.5 rounded-xl bg-[#25d366]/12 hover:bg-[#25d366]/20 border border-[#25d366]/40 text-[#075e54] text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition-colors min-h-[34px] whitespace-nowrap"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-[#16a34a]" />
+                              <span>WhatsApp Remind</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
       </div>
 
       {/* FIXED BOTTOM NAVIGATION TAB BAR */}
@@ -3981,7 +4652,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
             const isActive =
               ownerSection === tab.id ||
               (tab.id === 'overview' &&
-                (ownerSection === 'attendance' || ownerSection === 'qrcodes'));
+                (ownerSection === 'attendance' ||
+                  ownerSection === 'qrcodes' ||
+                  ownerSection === 'broadcasts'));
             return (
               <button
                 key={tab.id}

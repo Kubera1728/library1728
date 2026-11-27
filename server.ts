@@ -49,6 +49,7 @@ interface ServerStore {
   attendance: ServerAttendanceRecord[];
   attendanceActivationDates: Record<string, string>;
   seatQrReferences?: Record<string, any[]>;
+  feePayments?: any[];
 }
 
 const DEFAULT_STORE: ServerStore = {
@@ -59,6 +60,7 @@ const DEFAULT_STORE: ServerStore = {
   attendance: [],
   attendanceActivationDates: {},
   seatQrReferences: {},
+  feePayments: [],
 };
 
 const STRICT_STUDENT_PIN_REGEX = /^[1-9]\d{3}$/;
@@ -156,6 +158,7 @@ function loadServerStore(): ServerStore {
           parsed.seatQrReferences && typeof parsed.seatQrReferences === 'object'
             ? parsed.seatQrReferences
             : {},
+        feePayments: Array.isArray(parsed.feePayments) ? parsed.feePayments : [],
       };
       if (migrateLegacyStudentLoginsInStore(loaded)) {
         try {
@@ -179,6 +182,7 @@ function loadServerStore(): ServerStore {
     shifts: [],
     attendance: [],
     attendanceActivationDates: {},
+    feePayments: [],
   };
 }
 
@@ -767,6 +771,7 @@ async function startServer() {
       students?: any[];
       logins?: any[];
       shifts?: any[];
+      feePayments?: any[];
       attendanceActivationDates?: Record<string, string>;
       replaceAll?: boolean;
       deleteLibraryId?: string;
@@ -780,6 +785,7 @@ async function startServer() {
       if (Array.isArray(body.students)) serverStore.students = body.students;
       if (Array.isArray(body.logins) && body.logins.length > 0) serverStore.logins = body.logins;
       if (Array.isArray(body.shifts)) serverStore.shifts = body.shifts;
+      if (Array.isArray(body.feePayments)) serverStore.feePayments = body.feePayments;
       if (body.attendanceActivationDates) {
         serverStore.attendanceActivationDates = {
           ...serverStore.attendanceActivationDates,
@@ -821,6 +827,9 @@ async function startServer() {
     if (Array.isArray(body.shifts)) {
       serverStore.shifts = upsertByKey(serverStore.shifts, body.shifts, 'id');
     }
+    if (Array.isArray(body.feePayments)) {
+      serverStore.feePayments = upsertByKey(serverStore.feePayments || [], body.feePayments, 'id');
+    }
     if (body.attendanceActivationDates) {
       for (const [libId, dt] of Object.entries(body.attendanceActivationDates)) {
         const prev = serverStore.attendanceActivationDates[libId];
@@ -837,11 +846,13 @@ async function startServer() {
       serverStore.logins = serverStore.logins.filter((l) => l.reference_id !== id);
       serverStore.shifts = serverStore.shifts.filter((s) => s.library_id !== id);
       serverStore.attendance = serverStore.attendance.filter((a) => a.library_id !== id);
+      serverStore.feePayments = (serverStore.feePayments || []).filter((f) => f.library_id !== id);
     }
     if (body.deleteStudentId) {
       const id = body.deleteStudentId;
       serverStore.students = serverStore.students.filter((s) => s.id !== id);
       serverStore.logins = serverStore.logins.filter((l) => l.reference_id !== id);
+      serverStore.feePayments = (serverStore.feePayments || []).filter((f) => f.student_id !== id);
     }
     if (body.deleteShiftId) {
       serverStore.shifts = serverStore.shifts.filter((s) => s.id !== body.deleteShiftId);
@@ -867,6 +878,7 @@ async function startServer() {
       attendance: [],
       attendanceActivationDates: {},
       seatQrReferences: {},
+      feePayments: [],
     };
     persistServerStore();
     broadcastAttendanceEvent({ type: 'cleared' });

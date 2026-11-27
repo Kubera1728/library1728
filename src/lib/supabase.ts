@@ -7,6 +7,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   AttendanceRecord,
   BroadcastRequest,
+  FeePayment,
   Library,
   LoginRecord,
   SeatQrReference,
@@ -239,11 +240,13 @@ export function saveStoredSupabaseConfig(config: SupabaseConfig): void {
   cachedClient = null; // reset client
   attendanceLogsTableMissing = false;
   seatQrCodesTableMissing = false;
+  feePaymentsTableMissing = false;
 }
 
 let cachedClient: SupabaseClient | null = null;
 let attendanceLogsTableMissing = false;
 let seatQrCodesTableMissing = false;
+let feePaymentsTableMissing = false;
 
 function isMissingRelationError(err: { message?: string; code?: string } | null | undefined): boolean {
   if (!err) return false;
@@ -560,7 +563,33 @@ CREATE POLICY "Allow public all access on seat_qr_codes"
 
 CREATE INDEX IF NOT EXISTS idx_seat_qr_library ON public.seat_qr_codes(library_id);
 
--- Ensure Realtime broadcasts changes for shifts, students, libraries, and attendance
+-- 8. Create table for monthly student fee payments
+CREATE TABLE IF NOT EXISTS public.fee_payments (
+  id TEXT PRIMARY KEY,
+  library_id TEXT REFERENCES public.libraries(id) ON DELETE CASCADE NOT NULL,
+  student_id TEXT REFERENCES public.students(id) ON DELETE CASCADE NOT NULL,
+  month_key TEXT NOT NULL,
+  amount INTEGER NOT NULL DEFAULT 0,
+  status TEXT DEFAULT 'due' NOT NULL,
+  payment_date DATE,
+  created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+  UNIQUE (library_id, student_id, month_key)
+);
+
+GRANT ALL ON TABLE public.fee_payments TO anon, authenticated;
+ALTER TABLE public.fee_payments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public all access on fee_payments" ON public.fee_payments;
+CREATE POLICY "Allow public all access on fee_payments"
+  ON public.fee_payments FOR ALL
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
+
+CREATE INDEX IF NOT EXISTS idx_fee_payments_library_month ON public.fee_payments(library_id, month_key);
+
+-- Ensure Realtime broadcasts changes for shifts, students, libraries, attendance, and fee_payments
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
@@ -582,6 +611,10 @@ BEGIN
     END;
     BEGIN
       ALTER PUBLICATION supabase_realtime ADD TABLE public.broadcast_requests;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.fee_payments;
     EXCEPTION WHEN duplicate_object THEN NULL;
     END;
   END IF;
@@ -636,7 +669,50 @@ interface LocalDatabase {
   attendance?: AttendanceRecord[];
   unsyncedAttendanceIds?: string[];
   attendanceActivationDates?: Record<string, string>;
+  feePayments?: FeePayment[];
   shiftsInitialSeeded?: boolean;
+}
+
+function parseFeePaymentsFromStudentNotes(
+  students: Student[],
+  libraryId: string
+): FeePayment[] {
+  const results: FeePayment[] = [];
+  const regex = /\[FEE_PAID:(\d{4}-\d{2}):(\d{4}-\d{2}-\d{2}):(\d+)\]/gi;
+  for (const stu of students) {
+    if (!stu?.id || !stu.notes) continue;
+    let match: RegExpExecArray | null;
+    regex.lastIndex = 0;
+    while ((match = regex.exec(stu.notes)) !== null) {
+      const monthKey = match[1];
+      const paymentDate = match[2];
+      const amount = Number(match[3]) || 0;
+      results.push({
+        id: `fee_${libraryId}_${stu.id}_${monthKey}`,
+        library_id: libraryId,
+        student_id: stu.id,
+        month_key: monthKey,
+        amount,
+        status: 'paid',
+        payment_date: paymentDate,
+      });
+    }
+  }
+  return results;
+}
+
+function upsertFeePaidNoteTag(
+  notes: string | undefined,
+  monthKey: string,
+  paymentDate: string,
+  amount: number
+): string {
+  const escapedMonth = monthKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const clean = (notes || '')
+    .replace(new RegExp(`\\s*\\[FEE_PAID:${escapedMonth}:[^\\]]*\\]`, 'gi'), '')
+    .trim();
+  const tag = `[FEE_PAID:${monthKey}:${paymentDate}:${Math.max(0, Math.round(amount))}]`;
+  return clean ? `${clean} ${tag}` : tag;
 }
 
 function getLocalDateIso(d: Date = new Date()): string {
@@ -730,6 +806,9 @@ function getLocalDatabase(): LocalDatabase {
       if (!parsed.attendanceActivationDates) {
         parsed.attendanceActivationDates = {};
       }
+      if (!parsed.feePayments) {
+        parsed.feePayments = [];
+      }
       const { changed } = migrateLegacyStudentLoginsInLocalDb(parsed);
       if (changed) {
         saveLocalDatabase(parsed);
@@ -750,6 +829,7 @@ function getLocalDatabase(): LocalDatabase {
     attendance: [],
     unsyncedAttendanceIds: [],
     attendanceActivationDates: {},
+    feePayments: [],
   };
 }
 
@@ -828,6 +908,7 @@ async function fetchAndMergeLocalBootstrap(): Promise<LocalDatabase> {
     shifts?: Shift[];
     attendance?: AttendanceRecord[];
     attendanceActivationDates?: Record<string, string>;
+    feePayments?: FeePayment[];
   }>('/api/store/bootstrap');
 
   if (!remote) return db;
@@ -854,6 +935,7 @@ async function fetchAndMergeLocalBootstrap(): Promise<LocalDatabase> {
       students: db.students,
       logins: db.logins,
       shifts: db.shifts,
+      feePayments: db.feePayments,
       attendanceActivationDates: db.attendanceActivationDates,
     });
   } else {
@@ -864,6 +946,7 @@ async function fetchAndMergeLocalBootstrap(): Promise<LocalDatabase> {
   db.students = mergeByKey(db.students || [], remote.students, 'id');
   db.logins = mergeByKey(db.logins || [], remote.logins, 'code');
   db.shifts = mergeByKey(db.shifts || [], remote.shifts, 'id');
+  db.feePayments = mergeByKey(db.feePayments || [], remote.feePayments, 'id');
   if (Array.isArray(remote.attendance)) {
     db.attendance = mergeAttendanceRecordLists(remote.attendance, db.attendance || []);
   }
@@ -1105,6 +1188,13 @@ export const dataService = {
       await client.from('seat_qr_codes').delete().eq('library_id', id);
       await client.from('broadcast_requests').delete().eq('library_id', id);
       await client.from('shifts').delete().eq('library_id', id);
+      if (!feePaymentsTableMissing) {
+        try {
+          await client.from('fee_payments').delete().eq('library_id', id);
+        } catch {
+          // ignore if optional table not migrated yet
+        }
+      }
 
       const { error: stuDelErr } = await client.from('students').delete().eq('library_id', id);
       if (stuDelErr && !isMissingRelationError(stuDelErr)) {
@@ -1123,6 +1213,7 @@ export const dataService = {
     db.libraries = db.libraries.filter((l) => l.id !== id);
     db.students = db.students.filter((s) => s.library_id !== id);
     db.shifts = (db.shifts || []).filter((sh) => sh.library_id !== id);
+    db.feePayments = (db.feePayments || []).filter((f) => f.library_id !== id);
     db.logins = db.logins.filter(
       (l) => l.reference_id !== id && (!l.reference_id || !removedStudentIds.has(l.reference_id))
     );
@@ -1502,6 +1593,27 @@ export const dataService = {
         }
       }
 
+      // Remove any pending 'due' fee records for exited student so they never count toward monthly dues
+      if (!feePaymentsTableMissing) {
+        try {
+          await client
+            .from('fee_payments')
+            .delete()
+            .eq('student_id', student.id)
+            .neq('status', 'paid');
+        } catch {
+          // Non-blocking cleanup
+        }
+      }
+
+      const dbCleanup = getLocalDatabase();
+      if (Array.isArray(dbCleanup.feePayments)) {
+        dbCleanup.feePayments = dbCleanup.feePayments.filter(
+          (f) => !(f.student_id === student.id && f.status !== 'paid')
+        );
+        saveLocalDatabase(dbCleanup);
+      }
+
       return {
         ...student,
         is_active: false,
@@ -1543,6 +1655,10 @@ export const dataService = {
       }
       return att;
     });
+
+    db.feePayments = (db.feePayments || []).filter(
+      (f) => !(f.student_id === student.id && f.status !== 'paid')
+    );
 
     saveLocalDatabase(db);
     await apiPostJson('/api/store/sync', {
@@ -1608,18 +1724,27 @@ export const dataService = {
   },
 
   async deleteStudent(id: string): Promise<void> {
+    const db = getLocalDatabase();
+    db.students = db.students.filter((s) => s.id !== id);
+    db.logins = db.logins.filter((l) => l.reference_id !== id);
+    db.feePayments = (db.feePayments || []).filter((f) => f.student_id !== id);
+    saveLocalDatabase(db);
+
     const client = getSupabaseClient();
     if (client) {
+      if (!feePaymentsTableMissing) {
+        try {
+          await client.from('fee_payments').delete().eq('student_id', id);
+        } catch {
+          // ignore if optional table not migrated yet
+        }
+      }
       await client.from('all_logins').delete().eq('reference_id', id);
       const { error } = await client.from('students').delete().eq('id', id);
       if (error) throw new Error(error.message);
       return;
     }
 
-    const db = getLocalDatabase();
-    db.students = db.students.filter((s) => s.id !== id);
-    db.logins = db.logins.filter((l) => l.reference_id !== id);
-    saveLocalDatabase(db);
     await apiPostJson('/api/store/sync', { deleteStudentId: id });
   },
 
@@ -2917,6 +3042,270 @@ export const dataService = {
     }
   },
 
+  // Monthly Fee Payments Management (Supabase + graceful students.notes fallback + local/server sync)
+  async getFeePaymentsByLibrary(libraryId: string, studentsHint?: Student[]): Promise<FeePayment[]> {
+    const cleanLibId = (libraryId || '').trim();
+    if (!cleanLibId) return [];
+
+    const db = getLocalDatabase();
+    const localRows = (Array.isArray(db.feePayments) ? db.feePayments : []).filter(
+      (f) => f.library_id === cleanLibId
+    );
+    const mergedMap = new Map<string, FeePayment>();
+    const putRecord = (rec: FeePayment) => {
+      const key = `${rec.student_id}::${rec.month_key}`;
+      const prev = mergedMap.get(key);
+      if (!prev) {
+        mergedMap.set(key, rec);
+        return;
+      }
+      if (rec.status === 'paid' && prev.status !== 'paid') {
+        mergedMap.set(key, rec);
+        return;
+      }
+      if (rec.status === prev.status) {
+        const ta = new Date(prev.updated_at || prev.created_at || prev.payment_date || 0).getTime();
+        const tb = new Date(rec.updated_at || rec.created_at || rec.payment_date || 0).getTime();
+        if (tb >= ta) mergedMap.set(key, rec);
+      }
+    };
+
+    for (const item of localRows) putRecord(item);
+
+    const client = getSupabaseClient();
+    if (client) {
+      if (!feePaymentsTableMissing) {
+        try {
+          const { data, error } = await client
+            .from('fee_payments')
+            .select('*')
+            .eq('library_id', cleanLibId);
+
+          if (error) {
+            if (isMissingRelationError(error)) {
+              feePaymentsTableMissing = true;
+            } else {
+              console.warn('Supabase fee_payments read error:', error.message);
+            }
+          } else if (Array.isArray(data)) {
+            for (const row of data as FeePayment[]) {
+              putRecord({
+                ...row,
+                amount: Number(row.amount) || 0,
+                status: row.status === 'paid' ? 'paid' : 'due',
+              });
+            }
+          }
+        } catch {
+          // Graceful fallback to student notes / local cache
+        }
+      }
+
+      // Also merge any fallback [FEE_PAID:...] tags stored in students.notes
+      if (Array.isArray(studentsHint)) {
+        for (const parsed of parseFeePaymentsFromStudentNotes(studentsHint, cleanLibId)) {
+          putRecord(parsed);
+        }
+      } else {
+        try {
+          const { data: stuRows } = await client
+            .from('students')
+            .select('id, notes')
+            .eq('library_id', cleanLibId);
+          if (Array.isArray(stuRows)) {
+            for (const parsed of parseFeePaymentsFromStudentNotes(stuRows as Student[], cleanLibId)) {
+              putRecord(parsed);
+            }
+          }
+        } catch {
+          // Non-blocking fallback read
+        }
+      }
+    } else {
+      const remoteDb = await fetchAndMergeLocalBootstrap();
+      const remoteRows = (remoteDb.feePayments || []).filter((f) => f.library_id === cleanLibId);
+      for (const item of remoteRows) putRecord(item);
+      const sourceStudents = Array.isArray(studentsHint) ? studentsHint : remoteDb.students || [];
+      for (const parsed of parseFeePaymentsFromStudentNotes(
+        sourceStudents.filter((s) => s.library_id === cleanLibId),
+        cleanLibId
+      )) {
+        putRecord(parsed);
+      }
+    }
+
+    const result = Array.from(mergedMap.values());
+    const otherRows = (Array.isArray(db.feePayments) ? db.feePayments : []).filter(
+      (f) => f.library_id !== cleanLibId
+    );
+    db.feePayments = [...result, ...otherRows];
+    saveLocalDatabase(db);
+    return result;
+  },
+
+  async markFeePaymentsPaid({
+    libraryId,
+    student,
+    monthKeys,
+    amount,
+    paymentDate,
+  }: {
+    libraryId: string;
+    student: Student;
+    monthKeys: string[];
+    amount: number;
+    paymentDate?: string;
+  }): Promise<FeePayment[]> {
+    const cleanLibId = (libraryId || '').trim();
+    const resolvedDate = paymentDate || getLocalDateIso();
+    const cleanAmount = Math.max(0, Math.round(Number(amount) || 0));
+    const nowIso = new Date().toISOString();
+    const uniqueMonths = Array.from(
+      new Set(monthKeys.map((m) => String(m || '').trim()).filter((m) => /^\d{4}-\d{2}$/.test(m)))
+    );
+    if (uniqueMonths.length === 0) return [];
+
+    const records: FeePayment[] = uniqueMonths.map((monthKey) => ({
+      id: `fee_${cleanLibId}_${student.id}_${monthKey}`,
+      library_id: cleanLibId,
+      student_id: student.id,
+      month_key: monthKey,
+      amount: cleanAmount,
+      status: 'paid',
+      payment_date: resolvedDate,
+      created_at: nowIso,
+      updated_at: nowIso,
+    }));
+
+    const client = getSupabaseClient();
+    if (client) {
+      let persistedInTable = false;
+      if (!feePaymentsTableMissing) {
+        try {
+          const { error } = await client
+            .from('fee_payments')
+            .upsert(records, { onConflict: 'library_id,student_id,month_key' });
+          if (!error) {
+            persistedInTable = true;
+          } else if (isMissingRelationError(error)) {
+            feePaymentsTableMissing = true;
+          } else {
+            throw new Error(error.message);
+          }
+        } catch (err: any) {
+          if (!feePaymentsTableMissing) {
+            throw new Error(err?.message || 'Could not update fee status in Supabase.');
+          }
+        }
+      }
+
+      if (!persistedInTable) {
+        let updatedNotes = student.notes || '';
+        for (const monthKey of uniqueMonths) {
+          updatedNotes = upsertFeePaidNoteTag(updatedNotes, monthKey, resolvedDate, cleanAmount);
+        }
+        if (updatedNotes !== (student.notes || '')) {
+          const { error: stuErr } = await client
+            .from('students')
+            .update({ notes: updatedNotes })
+            .eq('id', student.id);
+          if (stuErr) {
+            throw new Error(stuErr.message);
+          }
+        }
+      }
+    }
+
+    const db = getLocalDatabase();
+    const existing = Array.isArray(db.feePayments) ? db.feePayments : [];
+    const monthSet = new Set(uniqueMonths);
+    db.feePayments = [
+      ...records,
+      ...existing.filter(
+        (f) => !(f.library_id === cleanLibId && f.student_id === student.id && monthSet.has(f.month_key))
+      ),
+    ];
+    if (!client) {
+      let updatedNotes = student.notes || '';
+      for (const monthKey of uniqueMonths) {
+        updatedNotes = upsertFeePaidNoteTag(updatedNotes, monthKey, resolvedDate, cleanAmount);
+      }
+      const stuIdx = db.students.findIndex((s) => s.id === student.id);
+      if (stuIdx !== -1) {
+        db.students[stuIdx] = { ...db.students[stuIdx], notes: updatedNotes };
+      }
+      saveLocalDatabase(db);
+      await apiPostJson('/api/store/sync', {
+        feePayments: records,
+        students: stuIdx !== -1 ? [db.students[stuIdx]] : undefined,
+      });
+    } else {
+      saveLocalDatabase(db);
+    }
+
+    return records;
+  },
+
+  async markFeePaymentPaid({
+    libraryId,
+    student,
+    monthKey,
+    amount,
+    paymentDate,
+  }: {
+    libraryId: string;
+    student: Student;
+    monthKey: string;
+    amount: number;
+    paymentDate?: string;
+  }): Promise<FeePayment> {
+    const saved = await this.markFeePaymentsPaid({
+      libraryId,
+      student,
+      monthKeys: [monthKey],
+      amount,
+      paymentDate,
+    });
+    return saved[0];
+  },
+
+  subscribeToFeeUpdates({
+    libraryId,
+    onUpdate,
+  }: {
+    libraryId?: string;
+    onUpdate: () => void;
+  }): () => void {
+    const client = getSupabaseClient();
+    if (!client || feePaymentsTableMissing) return () => {};
+    try {
+      const filter = libraryId ? `library_id=eq.${libraryId}` : undefined;
+      const channelName = `fee_payments_live_${libraryId || 'all'}_${Math.random()
+        .toString(36)
+        .slice(2, 7)}`;
+      const channel = client
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'fee_payments',
+            ...(filter ? { filter } : {}),
+          },
+          () => {
+            onUpdate();
+          }
+        )
+        .subscribe();
+      return () => {
+        void client.removeChannel(channel);
+      };
+    } catch {
+      return () => {};
+    }
+  },
+
   // Clear all data
   async clearAllData(): Promise<void> {
     await apiPostJson('/api/store/clear', {});
@@ -2938,6 +3327,11 @@ export const dataService = {
       }
       try {
         await client.from('seat_qr_codes').delete().neq('id', 'none');
+      } catch {
+        // ignore if table not present
+      }
+      try {
+        await client.from('fee_payments').delete().neq('id', 'none');
       } catch {
         // ignore if table not present
       }
